@@ -53,8 +53,10 @@ runs:
         SCCACHE_SHA256: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
       run: |
         set -euo pipefail
-        CPUS=$(nproc)
-        LOAD=$(awk '{printf "%d", $1 + 0.5}' /proc/loadavg)
+        # Gira anche sui runner Windows e macOS di desktop-ci, dove /proc non c'è.
+        CPUS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)
+        LOAD=0
+        if [ -r /proc/loadavg ]; then LOAD=$(awk '{printf "%d", $1 + 0.5}' /proc/loadavg); fi
         if [ "$MAX_WORKERS" = "auto" ]; then
           if [ "$RUNNER_KIND" = "github" ]; then
             N=$CPUS
@@ -130,7 +132,8 @@ runs:
         fi
         echo "cargo_target_dir=$CARGO_DIR" >> "$GITHUB_OUTPUT"
 
-        MEM_GB=$(awk '/MemAvailable/ {printf "%.1f", $2 / 1048576}' /proc/meminfo)
+        MEM_GB="?"
+        if [ -r /proc/meminfo ]; then MEM_GB=$(awk '/MemAvailable/ {printf "%.1f", $2 / 1048576}' /proc/meminfo); fi
         {
           echo "### Taratura della build"
           echo "| CPU | carico | worker | RAM libera | cache fidate |"
