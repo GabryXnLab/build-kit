@@ -52,10 +52,15 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   26/09): 545 s, di cui 321 di `gen_snapshot` sotto QEMU, 51 di compilazione Dart, il resto
   Gradle quasi tutto dalla build cache. Da qui le regole sotto, in ordine di peso.
 - **Un binario x86-64 si esegue con Box64, non con QEMU.** Box64 traduce il codice e usa
-  la libc nativa: `gen_snapshot` di Flutter 53 s contro 316 s, `hermesc` di React Native
-  46 s contro 95 s, output **identico byte per byte** in entrambi i casi (confrontato).
-  QEMU resta come `emulator: qemu`, per il giorno in cui Box64 sbagliasse. Se Box64 manca,
-  l'azione lo compila una volta dal commit fissato (~6 min) sotto `~/ci/tools`.
+  la libc nativa: `gen_snapshot` di Flutter 45 s contro 316 s, `hermesc` di React Native
+  43 s contro 95 s, output **identico byte per byte** (confrontato su due `app.dill` di
+  Kagami e su un bundle JS da 9 MB). **Solo una release fissata, mai il master**: il master
+  del 26/09/2026 andava in «double free or corruption» dentro `gen_snapshot` su uno dei due
+  input, in modo deterministico e con qualunque opzione della dynarec; la v0.4.4 no. Se
+  Box64 esce con errore il lanciatore ripete lo stesso comando con QEMU 10 (entrambi i
+  programmi sono deterministici), quindi un crash dell'emulatore costa tempo, non la build.
+  `emulator: qemu` salta Box64 del tutto. Se Box64 manca o è di un altro commit, l'azione
+  lo compila (~6 min) sotto `~/ci/tools`.
 - **Le cache condivise non si cancellano da una build.** `~/.gradle` (dipendenze,
   trasformazioni e build cache di tutti i progetti Gradle), `~/.pub-cache`, lo store di
   pnpm, `~/.cache/ccache` e `~/.cache/sccache` servono a tutti: `clear_cache` le rende

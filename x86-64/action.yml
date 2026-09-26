@@ -7,14 +7,18 @@ description: >-
 inputs:
   emulator:
     description: >-
-      box64 (default: traduzione dinamica, gen_snapshot di Kagami 53 s contro 316 s, output
-      identico byte per byte) | qemu (QEMU 10 user-mode, la via lenta di prima).
+      box64 (default: traduzione dinamica, gen_snapshot di Kagami 45 s contro 316 s, output
+      identico byte per byte; se esce con errore il lanciatore rifà il comando con QEMU) |
+      qemu (QEMU 10 user-mode, la via lenta di prima).
     required: false
     default: 'box64'
   box64_commit:
-    description: 'Commit di ptitSeb/box64 compilato se Box64 manca: quello provato con gen_snapshot e hermesc.'
+    description: >-
+      Commit di ptitSeb/box64 da compilare se Box64 manca o è un altro: la release v0.4.4,
+      provata con gen_snapshot e hermesc. ⚠️ Non il master: quello del 26/09/2026 andava in
+      «double free or corruption» dentro gen_snapshot su un app.dill di Kagami, la v0.4.4 no.
     required: false
-    default: 'ac9b13a54f59ddfa94a93d595720d0e9dc9a9b75'
+    default: '2f130fab1d6e1a4ee8a71dc60cfdfcc839ad192a'
   qemu_deb_url:
     description: >-
       Pacchetto da cui estrarre QEMU se manca. ⚠️ La 8.2 di Ubuntu 24.04 NON va: cade con
@@ -52,12 +56,13 @@ runs:
         BOX64="$TOOLS/box64/bin/box64"
         QEMU="$HOME/qemu-x86_64-10/bin/qemu-x86_64"
 
-        if [ "$EMULATOR" = "box64" ] && [ ! -x "$BOX64" ]; then
-          # Una volta per macchina, ~6 minuti su 4 CPU. Il lucchetto evita che due runner lo
-          # compilino insieme; chi arriva secondo trova il binario pronto.
+        box64_ok() { [ -x "$BOX64" ] && [ "$(cat "$TOOLS/box64/COMMIT" 2>/dev/null)" = "$BOX64_COMMIT" ]; }
+        if [ "$EMULATOR" = "box64" ] && ! box64_ok; then
+          # Una volta per macchina (o per commit fissato), ~6 minuti su 4 CPU. Il lucchetto
+          # evita che due runner lo compilino insieme; chi arriva secondo lo trova pronto.
           (
             flock 9
-            if [ ! -x "$BOX64" ]; then
+            if ! box64_ok; then
               TMP=$(mktemp -d)
               if git clone -q https://github.com/ptitSeb/box64 "$TMP/src" \
                 && git -C "$TMP/src" checkout -q "$BOX64_COMMIT" \
@@ -71,13 +76,14 @@ runs:
               rm -rf "$TMP"
             fi
           ) 9>"$TOOLS/.box64.lock"
-          if [ ! -x "$BOX64" ]; then
-            echo "::warning::Box64 non compilato: si passa a QEMU 10, più lento ma provato."
+          if ! box64_ok; then
+            echo "::warning::Box64 $BOX64_COMMIT non compilato: si passa a QEMU 10, più lento ma provato."
             EMULATOR=qemu
           fi
         fi
 
-        if [ "$EMULATOR" = "qemu" ] && [ ! -x "$QEMU" ]; then
+        # QEMU serve anche con Box64: è il ripiego del lanciatore.
+        if [ ! -x "$QEMU" ]; then
           TMP=$(mktemp -d)
           curl -fsSL -o "$TMP/qemu-user.deb" "$QEMU_DEB_URL"
           dpkg-deb -x "$TMP/qemu-user.deb" "$TMP/extracted"
@@ -91,7 +97,16 @@ runs:
         LAUNCHER="$TOOLS/bin/x86-64-$EMULATOR"
         case "$EMULATOR" in
           box64)
-            printf '#!/bin/sh\nBOX64_LOG=0 BOX64_NOBANNER=1 exec "%s" "$@"\n' "$BOX64" > "$LAUNCHER.new" ;;
+            # Box64 che esce con errore (un crash dentro l emulatore, come col master del
+            # 26/09) non deve far fallire la build: stesso comando con QEMU, solo più lento.
+            # I due programmi che passano di qui sono deterministici e riscrivono l output.
+            cat > "$LAUNCHER.new" <<EOF
+        #!/bin/sh
+        BOX64_LOG=0 BOX64_NOBANNER=1 "$BOX64" "\$@" && exit 0
+        echo "x86-64: Box64 uscito con \$?, ripeto con QEMU 10" >&2
+        exec "$QEMU" "\$@"
+        EOF
+            ;;
           qemu)
             printf '#!/bin/sh\nexec "%s" "$@"\n' "$QEMU" > "$LAUNCHER.new" ;;
           *)
