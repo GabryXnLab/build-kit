@@ -51,14 +51,21 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
 - **Sul self-hosted si va veloci facendo meno lavoro.** Misure su Kagami (APK release,
   26/09): 545 s, di cui 321 di `gen_snapshot` sotto QEMU, 51 di compilazione Dart, il resto
   Gradle quasi tutto dalla build cache. Da qui le regole sotto, in ordine di peso.
-- **Un binario x86-64 si esegue con Box64, non con QEMU.** Box64 traduce il codice e usa
-  la libc nativa: `gen_snapshot` di Flutter 45 s contro 316 s, `hermesc` di React Native
-  43 s contro 95 s, output **identico byte per byte** (confrontato su due `app.dill` di
-  Kagami e su un bundle JS da 9 MB). **Solo una release fissata, mai il master**: il master
-  del 26/09/2026 andava in «double free or corruption» dentro `gen_snapshot` su uno dei due
-  input, in modo deterministico e con qualunque opzione della dynarec; la v0.4.4 no. Se
-  Box64 esce con errore il lanciatore ripete lo stesso comando con QEMU 10 (entrambi i
-  programmi sono deterministici), quindi un crash dell'emulatore costa tempo, non la build.
+- **Un binario x86-64 si esegue con Box64, verificato, e QEMU 10 di riserva.** Box64
+  traduce il codice e usa la libc nativa: `gen_snapshot` di Flutter 45 s contro 316 s di
+  QEMU, `hermesc` di React Native 43 s contro 95 s, output **identico byte per byte**
+  (confrontato su due `app.dill` di Kagami e su un bundle JS da 9 MB). Ma su
+  `gen_snapshot`, che usa la libc agganciata, Box64 ha un difetto che dipende dalla
+  disposizione della memoria: «double free or corruption» in CI su input che a mano
+  passavano (col master in modo sistematico, con la v0.4.4 a volte), nessuna opzione della
+  dynarec lo toglie. Regole che ne derivano:
+  - solo una **release fissata** (v0.4.4), mai il master;
+  - il lanciatore di `x86-64` ripete con QEMU se Box64 esce con errore;
+  - dove un output sbagliato finirebbe su un telefono e il programma usa la libc
+    (`gen_snapshot`), **due esecuzioni in parallelo con ambienti di dimensione diversa**,
+    accettate solo se riescono entrambe e coincidono (wrapper di flutter-ci); il costo è
+    una CPU in più per 45 s;
+  - `hermesc` è statico (niente libc agganciata) e passa col lanciatore semplice.
   `emulator: qemu` salta Box64 del tutto. Se Box64 manca o è di un altro commit, l'azione
   lo compila (~6 min) sotto `~/ci/tools`.
 - **Le cache condivise non si cancellano da una build.** `~/.gradle` (dipendenze,
