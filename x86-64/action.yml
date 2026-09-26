@@ -34,6 +34,12 @@ outputs:
   emulator:
     description: 'box64 | qemu | native: quello effettivamente in uso.'
     value: ${{ steps.prep.outputs.emulator }}
+  box64:
+    description: 'Percorso di Box64 (vuoto se non in uso), per chi vuole comporre un lanciatore suo (es. la doppia esecuzione di gen_snapshot in flutter-ci).'
+    value: ${{ steps.prep.outputs.box64 }}
+  qemu:
+    description: 'Percorso di QEMU 10 (sempre presente su ARM64: è il ripiego).'
+    value: ${{ steps.prep.outputs.qemu }}
 
 runs:
   using: composite
@@ -116,4 +122,6 @@ runs:
         mv "$LAUNCHER.new" "$LAUNCHER"
         echo "emulator=$EMULATOR" >> "$GITHUB_OUTPUT"
         echo "launcher=$LAUNCHER" >> "$GITHUB_OUTPUT"
+        echo "qemu=$QEMU" >> "$GITHUB_OUTPUT"
+        if [ "$EMULATOR" = "box64" ]; then echo "box64=$BOX64" >> "$GITHUB_OUTPUT"; else echo "box64=" >> "$GITHUB_OUTPUT"; fi
         echo "x86-64 con $EMULATOR: $LAUNCHER"
