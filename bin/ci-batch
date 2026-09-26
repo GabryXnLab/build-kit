@@ -1,0 +1,50 @@
+#!/usr/bin/env bash
+# Lancia insieme le build di più progetti. Ogni build va sul primo runner libero: con due
+# istanze su nexus-core ne girano due alla volta, le altre aspettano in fila.
+#
+#   ci-batch kagami riftgate-mobile                  # tutte con i loro default
+#   ci-batch -f max_workers=2 kagami riftgate-desktop@feature-x
+#   ci-batch --list
+#
+# -f chiave=valore passa lo stesso input a ogni build: vale solo per gli input che tutti i
+# workflow hanno (max_workers, runner, clear_cache). Usa l autenticazione di `gh`.
+set -euo pipefail
+
+# alias → repo, workflow, input fissi
+declare -A TARGETS=(
+  [kagami]="GabryXnLab/kagami build-android.yml"
+  [riftgate-mobile]="GabryXnLab/Riftgate build-mobile.yml"
+  [riftgate-desktop]="GabryXnLab/Riftgate build-desktop.yml"
+  [ascend]="GabryXnLab/ascend manual-eas-build.yml -f build_target=local"
+)
+
+usage() { sed -n '2,11p' "$0" | sed 's/^# \{0,1\}//'; }
+
+FIELDS=()
+NAMES=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -f) FIELDS+=(-f "$2"); shift 2 ;;
+    --list) for k in "${!TARGETS[@]}"; do printf '%-18s %s\n' "$k" "${TARGETS[$k]}"; done | sort; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
+    *) NAMES+=("$1"); shift ;;
+  esac
+done
+if [ ${#NAMES[@]} -eq 0 ]; then usage; exit 1; fi
+
+for name in "${NAMES[@]}"; do
+  key="${name%@*}"
+  ref=""
+  if [ "$key" != "$name" ]; then ref="${name#*@}"; fi
+  if [ -z "${TARGETS[$key]:-}" ]; then
+    echo "ci-batch: '$key' sconosciuto (ci-batch --list)" >&2
+    exit 1
+  fi
+  read -r -a spec <<< "${TARGETS[$key]}"
+  repo="${spec[0]}"; wf="${spec[1]}"; fixed=("${spec[@]:2}")
+  args=(workflow run "$wf" -R "$repo" "${fixed[@]}" "${FIELDS[@]}")
+  if [ -n "$ref" ]; then args+=(--ref "$ref"); fi
+  echo "→ $key: gh ${args[*]}"
+  gh "${args[@]}"
+done
+echo "Avviate. In corso: gh run list -R <repo> --status in_progress; esiti nel topic Build di Telegram."

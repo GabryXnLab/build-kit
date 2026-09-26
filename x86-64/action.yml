@@ -1,0 +1,104 @@
+name: Binari x86-64 su nexus-core
+description: >-
+  Prepara il lanciatore con cui un workflow esegue un binario x86-64 sul runner ARM64
+  (gen_snapshot di Flutter, hermesc di React Native): Box64 di default, QEMU 10 a scelta.
+  Il lanciatore si usa come prefisso: `<launcher> ./binario-x86-64 argomenti…`.
+
+inputs:
+  emulator:
+    description: >-
+      box64 (default: traduzione dinamica, gen_snapshot di Kagami 53 s contro 316 s, output
+      identico byte per byte) | qemu (QEMU 10 user-mode, la via lenta di prima).
+    required: false
+    default: 'box64'
+  box64_commit:
+    description: 'Commit di ptitSeb/box64 compilato se Box64 manca: quello provato con gen_snapshot e hermesc.'
+    required: false
+    default: 'ac9b13a54f59ddfa94a93d595720d0e9dc9a9b75'
+  qemu_deb_url:
+    description: >-
+      Pacchetto da cui estrarre QEMU se manca. ⚠️ La 8.2 di Ubuntu 24.04 NON va: cade con
+      «QEMU internal SIGSEGV» dentro gen_snapshot. Qui la 10 di Debian trixie, estratta con
+      dpkg-deb (nessuna installazione di sistema).
+    required: false
+    default: 'https://deb.debian.org/debian/pool/main/q/qemu/qemu-user_10.0.13+ds-0+deb13u1_arm64.deb'
+
+outputs:
+  launcher:
+    description: 'Percorso assoluto del lanciatore (vuoto su host x86-64, dove non serve).'
+    value: ${{ steps.prep.outputs.launcher }}
+  emulator:
+    description: 'box64 | qemu | native: quello effettivamente in uso.'
+    value: ${{ steps.prep.outputs.emulator }}
+
+runs:
+  using: composite
+  steps:
+    - id: prep
+      shell: bash
+      env:
+        EMULATOR: ${{ inputs.emulator }}
+        BOX64_COMMIT: ${{ inputs.box64_commit }}
+        QEMU_DEB_URL: ${{ inputs.qemu_deb_url }}
+      run: |
+        set -euo pipefail
+        if [ "$(uname -m)" != "aarch64" ]; then
+          echo "emulator=native" >> "$GITHUB_OUTPUT"
+          echo "launcher=" >> "$GITHUB_OUTPUT"
+          exit 0
+        fi
+        TOOLS="$HOME/ci/tools"
+        mkdir -p "$TOOLS/bin"
+        BOX64="$TOOLS/box64/bin/box64"
+        QEMU="$HOME/qemu-x86_64-10/bin/qemu-x86_64"
+
+        if [ "$EMULATOR" = "box64" ] && [ ! -x "$BOX64" ]; then
+          # Una volta per macchina, ~6 minuti su 4 CPU. Il lucchetto evita che due runner lo
+          # compilino insieme; chi arriva secondo trova il binario pronto.
+          (
+            flock 9
+            if [ ! -x "$BOX64" ]; then
+              TMP=$(mktemp -d)
+              if git clone -q https://github.com/ptitSeb/box64 "$TMP/src" \
+                && git -C "$TMP/src" checkout -q "$BOX64_COMMIT" \
+                && cmake -S "$TMP/src" -B "$TMP/build" -DARM_DYNAREC=ON -DCMAKE_BUILD_TYPE=RelWithDebInfo >/dev/null \
+                && make -C "$TMP/build" -j"$(nproc)" >/dev/null; then
+                mkdir -p "$(dirname "$BOX64")"
+                install -m 755 "$TMP/build/box64" "$BOX64.new"
+                mv "$BOX64.new" "$BOX64"
+                echo "$BOX64_COMMIT" > "$TOOLS/box64/COMMIT"
+              fi
+              rm -rf "$TMP"
+            fi
+          ) 9>"$TOOLS/.box64.lock"
+          if [ ! -x "$BOX64" ]; then
+            echo "::warning::Box64 non compilato: si passa a QEMU 10, più lento ma provato."
+            EMULATOR=qemu
+          fi
+        fi
+
+        if [ "$EMULATOR" = "qemu" ] && [ ! -x "$QEMU" ]; then
+          TMP=$(mktemp -d)
+          curl -fsSL -o "$TMP/qemu-user.deb" "$QEMU_DEB_URL"
+          dpkg-deb -x "$TMP/qemu-user.deb" "$TMP/extracted"
+          mkdir -p "$(dirname "$QEMU")"
+          install -m 755 "$TMP/extracted/usr/bin/qemu-x86_64" "$QEMU"
+          rm -rf "$TMP"
+        fi
+
+        # Lanciatori stabili, riscritti a ogni run (mv atomico: un altro runner potrebbe
+        # usarli in quel momento). Chi mette un wrapper in un SDK condiviso punta a questi.
+        LAUNCHER="$TOOLS/bin/x86-64-$EMULATOR"
+        case "$EMULATOR" in
+          box64)
+            printf '#!/bin/sh\nBOX64_LOG=0 BOX64_NOBANNER=1 exec "%s" "$@"\n' "$BOX64" > "$LAUNCHER.new" ;;
+          qemu)
+            printf '#!/bin/sh\nexec "%s" "$@"\n' "$QEMU" > "$LAUNCHER.new" ;;
+          *)
+            echo "::error::emulator non valido: '$EMULATOR' (attesi: box64 | qemu)"; exit 1 ;;
+        esac
+        chmod +x "$LAUNCHER.new"
+        mv "$LAUNCHER.new" "$LAUNCHER"
+        echo "emulator=$EMULATOR" >> "$GITHUB_OUTPUT"
+        echo "launcher=$LAUNCHER" >> "$GITHUB_OUTPUT"
+        echo "x86-64 con $EMULATOR: $LAUNCHER"
