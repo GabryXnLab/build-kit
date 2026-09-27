@@ -12,7 +12,7 @@ set -euo pipefail
 
 # alias → repo, workflow, input fissi
 declare -A TARGETS=(
-  [kagami]="GabryXnLab/kagami build-android.yml"
+  [kagami]="GabryXnLab/kagami-private build-android.yml"
   [riftgate-mobile]="GabryXnLab/Riftgate build-mobile.yml"
   [riftgate-desktop]="GabryXnLab/Riftgate build-desktop.yml"
   [ascend]="GabryXnLab/ascend manual-eas-build.yml -f build_target=local"
