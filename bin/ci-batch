@@ -7,7 +7,8 @@
 #   ci-batch --list
 #
 # -f chiave=valore passa lo stesso input a ogni build: vale solo per gli input che tutti i
-# workflow hanno (max_workers, runner, clear_cache). Usa l autenticazione di `gh`.
+# workflow hanno (max_workers, clear_cache; runner non negli Expo, che usano build_target).
+# Usa l autenticazione di `gh`.
 set -euo pipefail
 
 # alias → repo, workflow, input fissi

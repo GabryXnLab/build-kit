@@ -121,6 +121,10 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    Nel wrapper la descrizione di `max_workers` è sempre: «⚙️ Worker di Gradle/cargo.
    auto = le CPU libere di nexus-core in quel momento (mai sotto 2), su GitHub tutte.
    4 = tutta la macchina, 2 = lascia spazio a un'altra build.»
+   Unica eccezione voluta: lo stack Expo (`expo-ci`) non ha `runner` ma `build_target`
+   (`local` = self-hosted | `eas` = cloud di Expo), perché l'alternativa a nexus-core lì è
+   EAS e non un runner GitHub. Per questo `ci-batch -f runner=…` non vale per `ascend` e
+   `riftgate-mobile`.
 3. **Nel reusable**, in quest'ordine: notifica di inizio (`ci-bot/notify`), checkout con
    `clean: ${{ inputs.runner == 'github' }}` (o solo con `clear_cache`),
    `build-kit/setup`, eventuale `build-kit/x86-64`, pulizia delle sole cartelle del
@@ -128,7 +132,13 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
 4. **Niente installazioni di sistema dal workflow** su nexus-core: SDK condivisi
    (`/opt/android-sdk`, `~/sdk/flutter`) si usano, non si modificano; gli strumenti propri
    della CI stanno in `~/ci/tools` e l'azione che li usa sa installarli da sola.
-5. **Si misura prima e dopo**: tempi per step (`gh run view <id> --json jobs`) e, dentro
+5. **Parità fra progetti dello stesso stack** (oggi: Ascend e Riftgate su `expo-ci`,
+   Kagami su `flutter-ci`, Riftgate desktop su `desktop-ci`): stessi input, stesse
+   descrizioni, `run-name` con le scelte, esito nel topic Build (`telegram_topic_id: '6'`)
+   per build **e** update, secret per nome. Una miglioria nasce nel reusable o qui, non in
+   un wrapper; se tocca un wrapper, si porta negli altri nello stesso giro o si scrive
+   perché no. Il controllo rapido è `ci-batch --list` più un `diff` fra i wrapper.
+6. **Si misura prima e dopo**: tempi per step (`gh run view <id> --json jobs`) e, dentro
    la build, il log verboso con i tempi (per Flutter `-v`, per Gradle `--profile`).
 
 ## Convenzioni
