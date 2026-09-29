@@ -129,6 +129,10 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    `clean: ${{ inputs.runner == 'github' }}` (o solo con `clear_cache`),
    `build-kit/setup`, eventuale `build-kit/x86-64`, pulizia delle sole cartelle del
    progetto se `clear_cache`, build, artefatto, notifica d'esito con `if: always()`.
+   L'upload dell'artefatto ha `continue-on-error`: la quota di storage è dell'org (piano
+   free, ricalcolata ogni 6-12 h) e piena non deve far fallire una build riuscita, che
+   arriva comunque su Telegram. Resta bloccante solo dove un job successivo lo scarica
+   (release di `desktop-ci`).
 4. **Niente installazioni di sistema dal workflow** su nexus-core: SDK condivisi
    (`/opt/android-sdk`, `~/sdk/flutter`) si usano, non si modificano; gli strumenti propri
    della CI stanno in `~/ci/tools` e l'azione che li usa sa installarli da sola.
