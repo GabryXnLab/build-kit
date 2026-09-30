@@ -3,8 +3,9 @@
 Componenti comuni delle build di GabryXnLab, usati dai reusable
 [`flutter-ci`](https://github.com/GabryXnLab/flutter-ci),
 [`expo-ci`](https://github.com/GabryXnLab/expo-ci) e
-[`desktop-ci`](https://github.com/GabryXnLab/desktop-ci). Il perché e il modello da seguire
-per una build nuova stanno in [`CLAUDE.md`](CLAUDE.md).
+[`desktop-ci`](https://github.com/GabryXnLab/desktop-ci), e il sync che pubblica un repo
+privato nel suo specchio pubblico. Il perché e il modello da seguire per una build nuova
+stanno in [`CLAUDE.md`](CLAUDE.md).
 
 ## `setup` — worker e cache
 
@@ -77,6 +78,56 @@ che li riceve: con `ci-bot` funzionano, con un altro bot restano muti.
 
 È la copia pubblica di `ci-bot/notify`, con gli stessi input: `ci-bot` resta privato, e un
 repo pubblico non può usare un'azione di un repo privato.
+
+## `public-sync` — specchio pubblico di un repo privato
+
+Porta `main` del repo privato nel suo specchio pubblico come PR di un commit solo, meno i
+file esclusi, dopo uno scanner anti-fuga. Architettura, secret e checklist per un progetto
+nuovo: [`CLAUDE.md`](CLAUDE.md), «Pubblicare un progetto». Il wrapper da copiare nel privato
+è [`templates/publish/public-sync.yml`](templates/publish/public-sync.yml):
+
+```yaml
+jobs:
+  sync:
+    uses: GabryXnLab/build-kit/.github/workflows/public-sync.yml@main
+    with:
+      app_name: App
+      public_repo: <owner>/<pubblico>
+      baseline: <sha del commit privato da cui è nato il pubblico>
+      require_extra_patterns: true
+      dry_run: ${{ inputs.dry_run == true }}
+    secrets:
+      PUBLIC_SYNC_TOKEN: ${{ secrets.PUBLIC_SYNC_TOKEN }}        # PAT sul solo pubblico
+      PUBLIC_SYNC_PATTERNS: ${{ secrets.PUBLIC_SYNC_PATTERNS }}  # modelli personali
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+```
+
+| Input | Default | |
+| :--- | :--- | :--- |
+| `config_dir` | `.github/public-sync` | `exclude` (obbligatorio), `patterns`, `allow` del progetto |
+| `branch_prefix` | `sync/` | branch della PR nel pubblico |
+| `sync_trailer`, `accept_trailer` | `Private-Sync`, `Public-Sync-Accept` | |
+| `author_name`, `author_email` | `github-actions[bot]` | autore del commit di sync |
+| `runs_on` | `["self-hosted", "nexus-core"]` | JSON |
+| `telegram_topic_id` | `'6'` | vuoto = nessuna notifica |
+
+Output `result`: `noop`, `ready`, `pr-up-to-date`, `blocked-public` (contributi del
+pubblico: patch nell'artefatto `public-sync` e una issue nel privato), `blocked-leak`.
+
+Lo script gira anche in locale, in un clone del privato con `main` del pubblico in
+`refs/public/main` (crea solo oggetti e un ref `refs/public-sync-out/…`):
+
+```bash
+git fetch https://github.com/<owner>/<pubblico>.git '+refs/heads/main:refs/public/main'
+python3 public-sync/sync.py plan --dry-run --baseline <sha> --extra-patterns <file> --out-dir /tmp/x
+python3 public-sync/sync.py scan HEAD --extra-patterns <file>
+python3 -B -m unittest public-sync/test_sync.py      # le prove, su repo git finti
+```
+
+`templates/publish/` ha anche build e release dello specchio: `flutter/` (`ci.yml`,
+`build.yml`, `release.yml`), `desktop/` (`build.yml`, `release.yml`), `expo/` (`build.yml`
+su EAS).
 
 ## `bin/ci-batch` — più build in un colpo
 

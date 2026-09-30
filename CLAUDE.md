@@ -8,12 +8,17 @@ cache, cosa vuol dire «pulire») sta qui una volta sola, come azioni composite,
 script che lancia più build insieme. È il posto da cui parte chi scrive o rivede un
 workflow di build: la sezione «Come si scrive una build» è il modello da seguire.
 
+Contiene anche il **sistema di pubblicazione** comune: un repo privato di sviluppo che
+porta `main` in uno specchio pubblico come PR di un commit solo, con uno scanner anti-fuga,
+e i template per build e release dello specchio (sezione «Pubblicare un progetto»).
+
 `README.md` ha l'uso; questo file i vincoli e il perché.
 
 ## Stack
 
-Azioni composite di GitHub Actions (bash con `set -euo pipefail`) e uno script bash.
-Nessuna dipendenza, niente da compilare.
+Azioni composite di GitHub Actions (bash con `set -euo pipefail`), uno script bash, un
+reusable workflow e uno script `python3` di sola libreria standard. Nessuna dipendenza,
+niente da compilare.
 
 ## Struttura
 
@@ -22,6 +27,11 @@ setup/action.yml     worker (max_workers), cache condivise della macchina, clear
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
 bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow run)
+public-sync/         specchio pubblico: sync.py (piano, commit, scanner), patterns generici,
+                     test_sync.py, action.yml che dà al job la cartella dello script
+.github/workflows/public-sync.yml   il reusable del sync: fetch, push, PR, issue, notifica
+templates/publish/   da copiare in un progetto: wrapper del sync, exclude/patterns/allow
+                     d'esempio, build e release dello specchio per flutter/, desktop/, expo/
 ```
 
 ## Comandi
@@ -30,6 +40,8 @@ bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow r
 python3 -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('*/action.yml')]"
 bash -n bin/ci-batch && bin/ci-batch --list
 bash -n notify/notify.sh && shellcheck notify/notify.sh
+python3 -m py_compile public-sync/sync.py && python3 -B -m unittest public-sync/test_sync.py
+actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, placeholder sostituiti
 ```
 
 ## Architettura delle build
@@ -172,6 +184,153 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    perché no. Il controllo rapido è `ci-batch --list` più un `diff` fra i wrapper.
 6. **Si misura prima e dopo**: tempi per step (`gh run view <id> --json jobs`) e, dentro
    la build, il log verboso con i tempi (per Flutter `-v`, per Gradle `--profile`).
+
+## Pubblicare un progetto: repo privato + specchio pubblico
+
+Lo sviluppo sta in un repo privato (`<nome>-private`), il pubblico (`<nome>`) riceve le
+modifiche come PR preparate dal privato. Nato su Kagami, che resta il riferimento: il suo
+`.github/workflows/CLAUDE.md` descrive lo stesso sistema dal lato del progetto.
+
+```text
+repo privato                                              specchio pubblico
+  .github/workflows/public-sync.yml   thin wrapper: push su main, a mano (dry_run)
+    └─ uses: build-kit/.github/workflows/public-sync.yml@main     runner self-hosted
+         └─ uses: build-kit/public-sync@main   sync.py + modelli generici, stessa ref
+  .github/public-sync/{exclude,patterns,allow}   del progetto, mai pubblici
+        ── PR sync/<sha> di un commit, trailer Private-Sync ──→  main
+                                                                  ├─ ci.yml       analisi e test, anche nei fork
+                                                                  ├─ build.yml    ogni merge, runner di GitHub
+                                                                  └─ release.yml  a mano: GitHub Release
+```
+
+### Come funziona il sync
+
+- **Un commit per PR, mai la storia privata.** A ogni push su `main` del privato,
+  `sync.py plan` costruisce l'albero di `main` meno i percorsi di `exclude` e ne fa un
+  commit il cui unico genitore è `main` del pubblico, sul branch `sync/<sha corto>`. Il
+  messaggio elenca i soggetti dei commit privati che toccano file pubblici. Un percorso
+  escluso che esiste nel pubblico resta com'è. Albero uguale = niente da fare; una PR di
+  sync nuova chiude quella ancora aperta.
+- **Il trailer `Private-Sync: <sha>`** (ultima riga del commit e della descrizione della
+  PR, che lo squash usa come messaggio) dice qual è l'ultimo commit privato arrivato: il
+  sync seguente riparte da lì. Merge, squash o rebase vanno bene. Finché il pubblico non
+  ha un trailer vale l'input `baseline`. Se il commit del trailer non è più un antenato
+  (storia privata riscritta) il sync si ferma: si decide a mano.
+- **Lo scanner blocca le fughe**, su ogni file dell'albero, sul messaggio e sulla
+  descrizione. Il rapporto dice file, riga e id del modello, mai il valore. Un soggetto
+  di commit che contiene un modello si omette invece di bloccare (resta per sempre nella
+  storia privata). Eccezioni in `allow`, una per file e id, ciascuna motivata.
+- **Un commit fatto direttamente nel pubblico non si perde.** Se la PR cancellerebbe
+  cambiamenti del pubblico che non vengono da un sync, il sync si ferma, carica la patch
+  come artefatto `public-sync` (30 giorni) e apre o commenta una issue nel privato. Si
+  riporta con `git am`/`git apply`; se il riporto non è identico, il commit nel privato
+  porta `Public-Sync-Accept: <sha di main pubblico>`.
+
+### Scelte
+
+- **Reusable più azione composita, non solo l'uno o l'altra.** Lo script deve girare alla
+  stessa ref di chi lo chiama, e un reusable non conosce la propria (`github.workflow_ref`
+  e `job.workflow_ref` sono del chiamante): un checkout di build-kit dal reusable dovrebbe
+  cablare `main`. Un'azione invece ha `github.action_path`, quindi `public-sync/action.yml`
+  fa una cosa sola: dà al job la cartella con `sync.py` e i modelli generici, scaricata da
+  GitHub insieme all'azione. Tutto il resto sta nel reusable perché lì `failure()`,
+  `job.status` e gli output di step valgono per il job intero, come negli altri reusable, e
+  il runner (`runs_on`) è un input con default. Come per `notify`, il reusable usa
+  `public-sync@main`.
+- **Modelli dello scanner su tre livelli**, sommati: `public-sync/patterns` del kit (solo
+  ciò che è segreto per chiunque: token, chiavi, keystore, configurazioni Firebase; il kit
+  è pubblico e un modello dice già cosa cerca), `patterns` del progetto (ciò che riguarda
+  solo lui) e il secret `PUBLIC_SYNC_PATTERNS` (quelli personali del manutentore, uguali in
+  tutti i progetti: nomi di macchine, indirizzi, email, org dei servizi). Il secret finisce
+  in un file del job con permessi 600, mai negli argomenti né nel log; un modello rotto
+  ferma il sync senza stamparne il testo.
+- **`PUBLIC_SYNC_PATTERNS` è un secret di repo, non d'organizzazione.** Sul piano Free i
+  secret d'org non arrivano ai repo privati, cioè proprio a chi fa il sync. La fonte è un
+  file solo, fuori da ogni repo, fra i segreti del manutentore; si copia in ogni privato
+  con `gh secret set PUBLIC_SYNC_PATTERNS -R <owner>/<privato> < <file>`, e quando cambia
+  si ripete per tutti. Con un piano a pagamento diventa un secret d'org visibile ai soli
+  repo privati, con lo stesso nome, e wrapper e reusable restano uguali. Il wrapper passa
+  `require_extra_patterns: true`: senza il secret il sync fallisce invece di pubblicare
+  senza quei controlli.
+- **Il sync gira solo nei repo privati** (`if: github.event.repository.private`), sul
+  self-hosted: un minuto di git e python che non consuma minuti privati. `ubuntu-latest`
+  non basterebbe a mandarlo su GitHub, perché uno dei self-hosted ne ha l'etichetta. Il job
+  non installa niente e gira con `GIT_CONFIG_GLOBAL=/dev/null` e `GH_CONFIG_DIR` nel temp:
+  la config globale della macchina passerebbe a git le credenziali di `gh`, che non devono
+  entrare nel push. Il pubblico si tocca solo con `PUBLIC_SYNC_TOKEN`, mai col
+  `GITHUB_TOKEN`, che serve solo per la issue nel privato.
+- **Nel pubblico build e release girano sui runner di GitHub.** Il runner group «Default»
+  dell'org non serve i repo pubblici, quindi il self-hosted lì non c'è (un wrapper
+  self-hosted portato dal sync resta in coda se lanciato), e un repo pubblico ha minuti
+  gratis, macOS compreso. Per lo stesso motivo lì si usano solo azioni e reusable
+  pubblici: `flutter-ci`, `desktop-ci`, `expo-ci` e questo repo. Nel privato gli stessi
+  workflow partono solo a mano (un minuto macOS del piano ne vale dieci).
+- **I template stanno qui e non nei `<stack>-ci`**: la pubblicazione attraversa gli stack
+  (il sync è uguale per tutti) e la checklist è una sola. Si copiano, non si referenziano:
+  un template cambiato non tocca i progetti che l'hanno già copiato, e la parità si porta
+  a mano come per i wrapper.
+
+### Secret
+
+| Secret | Dove | Cosa |
+| :--- | :--- | :--- |
+| `PUBLIC_SYNC_TOKEN` | privato | PAT fine-grained, owner l'org, «Only select repositories» = il solo pubblico; Contents, Pull requests e Workflows in lettura e scrittura (senza Workflows GitHub rifiuta ogni sync che tocca `.github/workflows/`). Scade: il sync fallito arriva su Telegram, si rigenera e si rimette con `gh secret set PUBLIC_SYNC_TOKEN -R <owner>/<privato>`. |
+| `PUBLIC_SYNC_PATTERNS` | privato | i modelli personali, vedi sopra. |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | privato e, se si vogliono gli esiti, pubblico | senza, la notifica non parte e il run non avvisa (è il caso di ogni fork). |
+| secret di build (`ANDROID_KEYSTORE*`, `GOOGLE_SERVICES_JSON`, `SENTRY_DSN`, `TAURI_SIGNING_*`, `EXPO_TOKEN`) | pubblico | quelli dei template dello stack; la chiave di release è sempre la stessa, o chi ha l'app non la aggiorna più. |
+
+### Checklist per un progetto nuovo
+
+1. **Privato pronto**: `CLAUDE.md`, niente segreti nei file tracciati. Copiare
+   `templates/publish/public-sync/{exclude,patterns,allow}` in `.github/public-sync/` e
+   riempire `exclude` (il sync stesso, note locali, configurazioni di chi compila, workflow
+   solo del manutentore) e `patterns` (i modelli propri del progetto).
+2. **Prova dello scanner** in locale, sull'albero di `main`:
+   `python3 <build-kit>/public-sync/sync.py scan HEAD --extra-patterns <file dei modelli personali>`.
+   Ogni occorrenza si toglie, si esclude, o diventa un'eccezione motivata in `allow`.
+3. **Crea il pubblico e il commit iniziale** con l'albero filtrato, senza storia: in un
+   clone del privato, `git read-tree HEAD`, `git rm --cached -r -q` dei percorsi esclusi,
+   `git commit-tree $(git write-tree) -m "<Nome>"` e push di quel commit come `main` del
+   pubblico nuovo (vuoto). Lo SHA del commit **privato** di partenza è la `baseline`.
+4. **Secret**: `PUBLIC_SYNC_TOKEN` e `PUBLIC_SYNC_PATTERNS` nel privato (vedi sopra),
+   quelli di build nel pubblico.
+5. **Wrapper**: `templates/publish/public-sync.yml` in `.github/workflows/` del privato,
+   con `app_name`, `public_repo` e `baseline`.
+6. **Build e release dello specchio**: i template dello stack in `.github/workflows/`
+   del privato (arrivano al pubblico col sync), placeholder `<…>` sostituiti.
+7. **Prova a secco**: `gh workflow run public-sync.yml -R <owner>/<privato> -f dry_run=true`,
+   poi il riepilogo del run: file che cambiano, commit, scanner.
+8. **Prima PR**: un push su `main` (o il run senza `dry_run`); si controlla la PR nel
+   pubblico, si unisce, e da lì il trailer sostituisce la baseline. `build.yml` parte sul
+   merge: si verificano gli artefatti (firma con `apksigner verify --print-certs`, per
+   esempio).
+9. **Release**: si alza la versione nel privato, il sync la porta, e dal pubblico si
+   lancia `release.yml` a mano su `main`.
+
+Da ricordare: i commit fatti col `GITHUB_TOKEN` (per esempio un aggiornamento delle
+dipendenze che committa da solo) non fanno partire workflow, quindi nemmeno il sync: va
+lanciato a mano o aspetta il push seguente.
+
+### Cosa c'è per ogni stack
+
+- **Flutter** (`templates/publish/flutter/`): completo. `ci.yml` autonomo (analisi,
+  test, APK a mano; niente reusable, così funziona in ogni fork), `build.yml` su
+  `flutter-ci` con `runner: github` (APK per architettura, universale, IPA non firmato),
+  `release.yml` (versione da `pubspec.yaml`, controlli di `ci.yml`, build di `build.yml`,
+  rifiuto di un APK firmato con una chiave di debug, SHA-256 di tutti i file).
+- **Tauri desktop** (`templates/publish/desktop/`): `build.yml` e `release.yml` su
+  `desktop-ci` con `runner_type: github`; la release va nel pubblico stesso con il token del
+  run (`RELEASES_TOKEN: ${{ github.token }}` e `contents: write`). Manca, in `desktop-ci`:
+  il titolo e le note della release sono ancora cablati su WarpMobile, nella release
+  vanno solo i file con una firma dell'updater (niente `.deb`, `.rpm`, `.dmg`), niente
+  SHA-256, e un `ci.yml` di analisi e test non c'è (è del progetto).
+- **Expo** (`templates/publish/expo/`): solo `build.yml` su EAS, a mano. Nel pubblico
+  `expo-ci` ha solo EAS: la build locale è cablata sul self-hosted, e con EAS l'APK
+  resta sui server di Expo (nel run e su Telegram arriva l'esito, non il file). Per una
+  release come quella di Flutter mancano, in `expo-ci`: una build locale su
+  `ubuntu-latest` (con la firma dai secret `ANDROID_KEYSTORE_*`), oppure lo scaricamento
+  dell'artefatto EAS (`eas build --json` dà l'URL) come artefatto del run; poi un
+  `release.yml` che lo pubblichi.
 
 ## Convenzioni
 
