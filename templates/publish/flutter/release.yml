@@ -1,0 +1,122 @@
+name: Release
+
+# Va in .github/workflows/release.yml. Una release pubblica: la versione di pubspec.yaml,
+# controllata da ci.yml, costruita da build.yml e firmata con la chiave di release, in una
+# GitHub Release con il suo SHA-256. Si lancia a mano da main dello specchio pubblico dopo
+# aver alzato `version` in pubspec.yaml. Modello tratto da Kagami.
+#
+# Da sostituire: <APP_NAME> (come in build.yml: prefisso degli artefatti e titolo) e
+# <app> (minuscolo, nei nomi dei file della release). Senza il job ios di build.yml:
+# togliere le righe dell'IPA qui sotto.
+run-name: Release · ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Versione
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+      # Una versione pubblicata non si ripubblica: chi ha l'APK deve poter contare
+      # su un numero che indica sempre lo stesso file.
+      - id: version
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version: *\([^+ ]*\).*/\1/p' pubspec.yaml)
+          if [ -z "$version" ]; then
+            echo "::error::version non trovata in pubspec.yaml"
+            exit 1
+          fi
+          if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::v$version esiste già: alza version in pubspec.yaml"
+            exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  # Analisi e test di ci.yml, senza il suo APK: gli APK e l'IPA li fa build.yml.
+  check:
+    name: Controlli
+    needs: version
+    uses: ./.github/workflows/ci.yml
+    with:
+      build_apk: false
+
+  build:
+    name: Build
+    needs: [version, check]
+    uses: ./.github/workflows/build.yml
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+
+  publish:
+    name: Pubblica
+    needs: [version, build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      APP: <app>
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      # Gli artefatti di flutter-ci si chiamano <app_name>-<piattaforma>-<modo>[-per-abi]-<sha>.
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: <APP_NAME>-*-release*-${{ github.sha }}
+          merge-multiple: true
+          path: dist
+      # Gli aggiornamenti si installano solo sopra un APK con la stessa firma: una
+      # release firmata con una chiave di debug legherebbe per sempre chi la installa.
+      - name: Firma e impronte
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          mkdir out
+          for abi in arm64-v8a armeabi-v7a x86_64 universal; do
+            if [ "$abi" = universal ]; then src=dist/app-release.apk; else src="dist/app-$abi-release.apk"; fi
+            apk="out/$APP-$VERSION-$abi.apk"
+            mv "$src" "$apk"
+            certs=$("$apksigner" verify --print-certs "$apk")
+            if grep -q 'CN=Android Debug' <<< "$certs"; then
+              echo "::error::$apk firmato con una chiave di debug: servono i secret ANDROID_KEYSTORE* della chiave di release"
+              exit 1
+            fi
+          done
+          mv dist/<APP_NAME>-ios-release-unsigned.ipa "out/$APP-$VERSION-ios-unsigned.ipa"
+          (cd out && sha256sum ./* | sed 's| \./| |' > "$APP-$VERSION.sha256")
+          {
+            echo "Quale scaricare:"
+            echo
+            echo "- \`arm64-v8a\`: quasi ogni telefono Android dal 2017 in poi. Nel dubbio, questo."
+            echo "- \`armeabi-v7a\`: telefoni a 32 bit, vecchi o economici."
+            echo "- \`x86_64\`: emulatori e pochi tablet con processore Intel."
+            echo "- \`universal\`: tutte e tre le architetture in un file solo, più pesante."
+            echo "- \`ios-unsigned.ipa\`: iPhone e iPad, non firmato: si installa con AltStore o Sideloadly."
+            echo
+            echo "Scegliete un APK e restateci: quelli per architettura hanno un \`versionCode\`"
+            echo "più alto dell'universale, che quindi non si installa sopra di loro."
+            echo
+            echo "Firma degli APK:"
+            echo '```'
+            "$apksigner" verify --print-certs "out/$APP-$VERSION-arm64-v8a.apk" | grep -E 'SHA-256 digest'
+            echo '```'
+          } > notes.md
+      - name: Release
+        run: |
+          gh release create "v$VERSION" out/* \
+            -R "$GITHUB_REPOSITORY" --target "$GITHUB_SHA" --title "<APP_NAME> $VERSION" \
+            --notes-file notes.md --generate-notes

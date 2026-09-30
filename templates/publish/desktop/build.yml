@@ -1,0 +1,41 @@
+name: Build desktop
+
+# Va in .github/workflows/build-desktop.yml (privato e pubblico: il sync lo porta). I
+# bundle Tauri di ogni merge in main dello specchio pubblico, sui runner di GitHub, come
+# artefatti del run. Thin wrapper sul reusable pubblico GabryXnLab/desktop-ci. Vedi il
+# CLAUDE.md di build-kit, «Pubblicare un progetto».
+#
+# Da sostituire: <APP_NAME>, <PROJECT_DIR> (la cartella con package.json e src-tauri/).
+run-name: Build desktop · ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: build-desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  desktop:
+    # Da solo solo nel pubblico, dove i minuti di GitHub (macOS e Windows compresi) non si
+    # pagano; in un repo privato solo a mano. `runner_type` è sempre `github`: il
+    # self-hosted non serve i repo pubblici, e linux-x64, Windows e macOS lì non ci sono.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    uses: GabryXnLab/desktop-ci/.github/workflows/tauri-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      platforms: linux-x64,linux-arm64,windows,macos
+      runner_type: github
+      project_dir: <PROJECT_DIR>
+      telegram_topic_id: '6'
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      # Facoltativa: senza, desktop-ci salta solo gli artefatti dell'updater.
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

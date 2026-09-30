@@ -1,0 +1,8 @@
+# Eccezioni dello scanner: <file> <id del modello>, separati da spazi. Va in .github/public-sync/.
+# Il file è un percorso esatto o un modello fnmatch dalla radice; l'eccezione vale
+# solo per quel modello in quel file. Ogni riga dice perché esiste: una riga senza
+# motivo non si aggiunge.
+
+# Esempio: il thin wrapper della build self-hosted nomina il runner nelle descrizioni degli
+# input, prescritte uguali per tutti i progetti; nessun indirizzo né credenziale.
+# .github/workflows/build-android.yml infra-server

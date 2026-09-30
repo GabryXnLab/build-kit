@@ -1,0 +1,16 @@
+# Modelli dello scanner anti-fuga propri di questo progetto. Va in .github/public-sync/.
+#
+# Formato: <dove> <id> <regex Python>, separati da spazi; la regex è il resto della riga.
+#   content  cerca in ogni riga dei file di testo e del messaggio di commit
+#   path     cerca nel percorso del file (anche per i binari)
+#   magic    cerca nei primi byte del file, in esadecimale minuscolo
+# Il rapporto dice solo id, file e riga: il valore trovato non si stampa mai.
+#
+# Si sommano sempre a quelli generici di build-kit (public-sync/patterns: token di servizi,
+# chiavi private, keystore, configurazioni Firebase) e a quelli del secret
+# PUBLIC_SYNC_PATTERNS, comuni a tutti i progetti di chi li mantiene (nomi di macchine,
+# indirizzi, email, org dei servizi). Qui solo ciò che riguarda questo progetto e nessun
+# altro: per esempio l'id del suo progetto Firebase o il dominio del suo backend privato.
+
+# content firebase-project    (?i)<id-del-progetto-firebase>
+# content backend-host        (?i)api\.<dominio-privato>\.example

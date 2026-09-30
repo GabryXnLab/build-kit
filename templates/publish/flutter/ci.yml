@@ -1,0 +1,157 @@
+name: CI
+
+# Va in .github/workflows/ci.yml. La CI di chiunque: runner di GitHub e nessun servizio
+# esterno, quindi gira uguale nel pubblico e in ogni fork. È autonoma di proposito (niente
+# reusable): analisi, test e i controlli di release.yml non dipendono da nessun altro repo.
+# Gli APK e l'IPA di ogni push su main li fa build.yml. Modello tratto da Kagami.
+#
+# Da sostituire: <FLUTTER_VERSION>, <app> (nome dell'artefatto). Senza codice generato
+# committato: togliere lo step «Codice generato allineato». Pacchetti Dart puri con il loro
+# pubspec: uno step in più in `check`, `(cd <pacchetto> && dart pub get && dart analyze && dart test)`.
+run-name: CI · ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      build_mode:
+        description: '📱 Modalità dell APK. release = quello da installare. debug = diagnostica. profile = misure di prestazioni.'
+        required: false
+        default: 'release'
+        type: choice
+        options:
+          - release
+          - debug
+          - profile
+      split_per_abi:
+        description: '🏗️ Un APK per architettura (arm64-v8a, armeabi-v7a, x86_64) invece di uno che le contiene tutte.'
+        required: false
+        default: false
+        type: boolean
+  # I controlli di release.yml, che gli APK e l'IPA li prende da build.yml.
+  workflow_call:
+    inputs:
+      build_mode:
+        type: string
+        default: 'release'
+      split_per_abi:
+        type: boolean
+        default: false
+      build_apk:
+        type: boolean
+        default: true
+    secrets:
+      GOOGLE_SERVICES_JSON:
+        required: false
+      ANDROID_KEYSTORE:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+      SENTRY_DSN:
+        required: false
+
+permissions:
+  contents: read
+
+# Con il nome del workflow: chiamato da release.yml vale il nome di quello, e un push
+# su main non annulla una release in corso.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # La stessa del CLAUDE.md del progetto e di build.yml: si aggiornano insieme.
+  FLUTTER_VERSION: '<FLUTTER_VERSION>'
+
+jobs:
+  check:
+    name: Analisi e test
+    # In un repo privato (il manutentore, o un fork chiuso) solo a mano: lì ci sono
+    # altre CI, e questa a ogni push costerebbe i minuti del piano.
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      - run: flutter pub get
+      # Il codice generato in git: uno schema cambiato senza rigenerarlo compila lo
+      # stesso e si scopre solo a runtime.
+      - name: Codice generato allineato
+        run: |
+          dart run build_runner build --delete-conflicting-outputs
+          git diff --exit-code -- '*.g.dart'
+      - run: flutter analyze
+      - run: flutter test
+
+  android:
+    name: APK
+    needs: check
+    # Solo a mano: l'APK di ogni push su main lo fa build.yml. Nelle PR da un fork i
+    # secret non ci sono, e un APK senza non serve a nessuno.
+    if: github.event_name == 'workflow_dispatch' && inputs.build_apk != false
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      SENTRY_DSN: ${{ secrets.SENTRY_DSN }}
+      BUILD_MODE: ${{ inputs.build_mode || 'release' }}
+      SPLIT_PER_ABI: ${{ inputs.split_per_abi && 'true' || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: ${{ env.FLUTTER_VERSION }}
+          channel: stable
+          cache: true
+      # Tutto facoltativo: l'app deve compilare anche senza la configurazione di chi compila.
+      - name: Configurazione di chi compila
+        run: |
+          if [ -n "$GOOGLE_SERVICES_JSON" ]; then
+            printf '%s' "$GOOGLE_SERVICES_JSON" > android/app/google-services.json
+          fi
+          # La chiave di debug di ogni runner è nuova: senza la propria, l'APK non si
+          # installa sopra il precedente. Passa da key.properties (che build.gradle del
+          # progetto deve leggere) e non da ~/.android/debug.keystore, che sui runner di
+          # GitHub Gradle ignora e rigenera.
+          if [ -n "$ANDROID_KEYSTORE" ]; then
+            printf '%s' "$ANDROID_KEYSTORE" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            {
+              echo "storeFile=$RUNNER_TEMP/release.keystore"
+              echo "storePassword=${ANDROID_KEYSTORE_PASSWORD:-android}"
+              echo "keyAlias=${ANDROID_KEY_ALIAS:-androiddebugkey}"
+              echo "keyPassword=${ANDROID_KEY_PASSWORD:-${ANDROID_KEYSTORE_PASSWORD:-android}}"
+            } > android/key.properties
+          fi
+      - run: flutter pub get
+      - run: flutter build apk --"$BUILD_MODE" ${SPLIT_PER_ABI:+--split-per-abi} --dart-define=SENTRY_DSN="$SENTRY_DSN"
+      - name: Impronta della firma
+        run: |
+          apksigner=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          for apk in build/app/outputs/flutter-apk/app*-"$BUILD_MODE".apk; do
+            "$apksigner" verify --print-certs "$apk" \
+              | grep 'SHA-1' | sed "s|^|$(basename "$apk"): |" >> "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@v4
+        with:
+          name: <app>-${{ env.BUILD_MODE }}
+          path: build/app/outputs/flutter-apk/app*-${{ env.BUILD_MODE }}.apk
+          if-no-files-found: error

@@ -1,0 +1,49 @@
+name: Build EAS
+
+# Va in .github/workflows/build-eas.yml (privato e pubblico: il sync lo porta). La build
+# dello specchio pubblico per un progetto Expo: nel pubblico il self-hosted non c'è, ed
+# expo-ci non ha una build locale sui runner di GitHub, quindi l'unica strada è EAS
+# (`build_target: eas`). L'APK resta sui server di Expo: nel run e su Telegram arriva
+# l'esito, non il file. Vedi il CLAUDE.md di build-kit, «Pubblicare un progetto».
+#
+# Solo a mano: ogni build consuma la quota del piano EAS di chi ha EXPO_TOKEN, e in un fork
+# il token non c'è. Da sostituire: <APP_NAME>. Il progetto deve avere eas.json e
+# `extra.eas.projectId` in app.json.
+run-name: Build EAS · ${{ inputs.build_profile }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      build_profile:
+        description: '📱 Profilo di eas.json. preview = APK da installare. production = AAB per gli store.'
+        required: false
+        default: 'preview'
+        type: choice
+        options:
+          - preview
+          - production
+      clear_cache:
+        description: '🧹 Build EAS senza la sua cache.'
+        required: false
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    uses: GabryXnLab/expo-ci/.github/workflows/expo-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      build_target: eas
+      build_profile: ${{ inputs.build_profile }}
+      clear_cache: ${{ inputs.clear_cache }}
+      # true se app.json usa android.googleServicesFile: il file arriva dal secret.
+      has_google_services: false
+      telegram_topic_id: '6'
+    secrets:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

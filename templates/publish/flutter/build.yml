@@ -1,0 +1,126 @@
+name: Build
+
+# Va in .github/workflows/build.yml (privato e pubblico: il sync lo porta). Le build di
+# ogni merge in main dello specchio pubblico: gli APK release (uno per architettura più
+# l'universale) e un IPA iOS non firmato, come artefatti del run. Thin wrapper sul
+# reusable pubblico GabryXnLab/flutter-ci: gira uguale in ogni fork, con i secret di chi
+# compila. Modello tratto da Kagami; vedi il CLAUDE.md di build-kit, «Pubblicare un progetto».
+#
+# Da sostituire: <APP_NAME> (anche prefisso degli artefatti), <FLUTTER_VERSION>.
+# Senza Firebase: togliere GOOGLE_SERVICES_JSON. Senza Sentry o altri --dart-define:
+# togliere DART_DEFINES (o metterci i propri, `CHIAVE=${{ secrets.X }}` separati da spazi).
+run-name: Build · ${{ github.ref_name }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+  # Le stesse build per release.yml, che le pubblica.
+  workflow_call:
+    secrets:
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+      GOOGLE_SERVICES_JSON:
+        required: false
+      ANDROID_KEYSTORE:
+        required: false
+      ANDROID_KEYSTORE_PASSWORD:
+        required: false
+      ANDROID_KEY_ALIAS:
+        required: false
+      ANDROID_KEY_PASSWORD:
+        required: false
+      SENTRY_DSN:
+        required: false
+
+permissions:
+  contents: read
+
+# Un merge nuovo comprende quello prima: la build vecchia non serve più. Chiamato da
+# release.yml `github.workflow` è «Release», come per ci.yml nello stesso run: il
+# prefisso tiene separati i due gruppi.
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+# Ogni job parte da solo solo in un repo pubblico, dove i minuti di GitHub (macOS
+# compreso) non si pagano; in un repo privato solo a mano, perché lì un minuto macOS
+# ne vale dieci. `runner` è sempre `github`: il self-hosted non serve i repo pubblici, e
+# questo workflow esiste per non dipenderne.
+# Analisi e test non si ripetono qui: li fa `check` di ci.yml sullo stesso push.
+jobs:
+  android-per-abi:
+    name: APK per architettura
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    uses: GabryXnLab/flutter-ci/.github/workflows/flutter-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      runner: github
+      # La stessa di ci.yml e del CLAUDE.md del progetto: si aggiornano insieme.
+      flutter_version: '<FLUTTER_VERSION>'
+      platform: android
+      build_mode: release
+      target_platform: android-arm,android-arm64,android-x64
+      split_per_abi: true
+      run_analyze: false
+      run_tests: false
+      telegram_topic_id: '6'
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      # Nel blocco `with:` di un reusable i secret non si possono usare: passano da qui.
+      DART_DEFINES: SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+
+  # Flutter dà o un APK per architettura o l'universale, mai tutti e due in un giro:
+  # due job in parallelo invece di due build una dopo l'altra.
+  android-universal:
+    name: APK universale
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    uses: GabryXnLab/flutter-ci/.github/workflows/flutter-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      runner: github
+      flutter_version: '<FLUTTER_VERSION>'
+      platform: android
+      build_mode: release
+      target_platform: android-arm,android-arm64,android-x64
+      split_per_abi: false
+      run_analyze: false
+      run_tests: false
+      telegram_topic_id: '6'
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      GOOGLE_SERVICES_JSON: ${{ secrets.GOOGLE_SERVICES_JSON }}
+      ANDROID_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+      ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+      ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+      DART_DEFINES: SENTRY_DSN=${{ secrets.SENTRY_DSN }}
+
+  # Senza account Apple Developer: l'IPA lo firma chi lo installa (AltStore, Sideloadly).
+  # Il job iOS si toglie se il progetto non ha la cartella ios/.
+  ios:
+    name: IPA non firmato
+    if: ${{ !github.event.repository.private || github.event_name == 'workflow_dispatch' }}
+    uses: GabryXnLab/flutter-ci/.github/workflows/flutter-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      runner: github
+      flutter_version: '<FLUTTER_VERSION>'
+      platform: ios
+      build_mode: release
+      run_analyze: false
+      run_tests: false
+      telegram_topic_id: '6'
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      DART_DEFINES: SENTRY_DSN=${{ secrets.SENTRY_DSN }}

@@ -1,0 +1,49 @@
+name: Sync pubblico
+
+# Va in .github/workflows/public-sync.yml del repo PRIVATO. Porta main di questo repo nello
+# specchio pubblico <OWNER>/<PUBLIC_REPO>, meno i file di .github/public-sync/exclude, come
+# PR di un commit solo. Thin wrapper sul reusable di GabryXnLab/build-kit: vedi il suo
+# CLAUDE.md, «Pubblicare un progetto».
+run-name: Sync pubblico${{ inputs.dry_run == true && ' · prova a secco' || '' }}
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: '🧪 Calcola commit, scanner e contributi del pubblico e li mostra nel riepilogo, senza push, PR né issue.'
+        required: false
+        default: false
+        type: boolean
+
+# issues: la issue in questo repo quando il pubblico ha contributi da riportare. Il
+# repo pubblico si tocca solo col PAT di PUBLIC_SYNC_TOKEN, mai col GITHUB_TOKEN.
+permissions:
+  contents: read
+  issues: write
+
+# Un sync alla volta; fra quelli in attesa resta l'ultimo, che comprende gli altri.
+concurrency:
+  group: public-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    uses: GabryXnLab/build-kit/.github/workflows/public-sync.yml@main
+    with:
+      app_name: <APP_NAME>
+      public_repo: <OWNER>/<PUBLIC_REPO>
+      # Il commit privato il cui albero (meno gli esclusi) è quello del commit iniziale del
+      # pubblico: da lì parte il primo sync. Dopo il primo merge conta il trailer.
+      baseline: <SHA_BASELINE>
+      # Con i modelli personali nel secret PUBLIC_SYNC_PATTERNS: se il secret sparisce, il
+      # sync si ferma invece di pubblicare senza quei controlli.
+      require_extra_patterns: true
+      dry_run: ${{ inputs.dry_run == true }}
+      telegram_topic_id: '6'
+    secrets:
+      PUBLIC_SYNC_TOKEN: ${{ secrets.PUBLIC_SYNC_TOKEN }}
+      PUBLIC_SYNC_PATTERNS: ${{ secrets.PUBLIC_SYNC_PATTERNS }}
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}

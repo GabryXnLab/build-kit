@@ -1,0 +1,65 @@
+name: Release desktop
+
+# Va in .github/workflows/release-desktop.yml. Una release dell'updater Tauri nello
+# specchio pubblico stesso: la versione di tauri.conf.json, i bundle firmati per l'updater e
+# latest.json, con il job `publish` di GabryXnLab/desktop-ci. Si lancia a mano da main del
+# pubblico dopo aver alzato `version` in <PROJECT_DIR>/src-tauri/tauri.conf.json.
+#
+# Limiti di desktop-ci oggi (vedi il CLAUDE.md di build-kit): nella release finiscono solo i
+# file con una firma dell'updater (niente .deb, .rpm, .dmg), il titolo è ancora cablato
+# («WarpMobile Desktop …») e non c'è un file SHA-256. Serve TAURI_SIGNING_PRIVATE_KEY.
+#
+# Da sostituire: <APP_NAME>, <PROJECT_DIR>.
+run-name: Release desktop · ${{ github.ref_name }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Versione
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      # Una versione pubblicata non si ripubblica: desktop-ci la aggiornerebbe
+      # (`upload --clobber`), e chi ha già l'app non riceverebbe niente di nuovo.
+      - env:
+          GH_TOKEN: ${{ github.token }}
+          CONF: <PROJECT_DIR>/src-tauri/tauri.conf.json
+        run: |
+          version=$(jq -r '.version' "$CONF")
+          if [ -z "$version" ] || [ "$version" = null ]; then
+            echo "::error::version non trovata in $CONF"
+            exit 1
+          fi
+          if gh release view "v$version" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "::error::v$version esiste già: alza version in $CONF"
+            exit 1
+          fi
+
+  release:
+    name: Build e release
+    needs: version
+    # Il job publish del reusable crea la release con il token del run: gli servono i
+    # permessi di scrittura, e nessun PAT perché la release sta in questo stesso repo.
+    permissions:
+      contents: write
+    uses: GabryXnLab/desktop-ci/.github/workflows/tauri-build.yml@main
+    with:
+      app_name: <APP_NAME>
+      platforms: linux-x64,linux-arm64,windows,macos
+      runner_type: github
+      project_dir: <PROJECT_DIR>
+      publish_release: true
+      releases_repo: ${{ github.repository }}
+      release_notes: '<APP_NAME> desktop'
+      telegram_topic_id: '6'
+    secrets:
+      TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+      TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+      RELEASES_TOKEN: ${{ github.token }}

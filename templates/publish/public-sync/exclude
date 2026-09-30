@@ -1,0 +1,24 @@
+# Percorsi del repo privato che non vanno mai nel pubblico. Va in .github/public-sync/.
+#
+# Un percorso per riga. Con una «/» il modello vale dalla radice del repo
+# (`dir/` = la cartella e tutto ciò che contiene); senza «/» vale per il nome del
+# file in qualunque cartella. `*` e `?` come in fnmatch.
+# Un percorso escluso che esiste già nel pubblico resta com'è nel pubblico: il
+# sync non lo crea, non lo cambia e non lo cancella.
+
+# Il sync stesso: il wrapper e la sua configurazione (questa lista, i modelli, le eccezioni).
+.github/workflows/public-sync.yml
+.github/public-sync/
+
+# Note personali per gli agenti (di solito già in .git/info/exclude: ripetute qui perché,
+# se finissero in git per sbaglio, non arrivino comunque al pubblico).
+CLAUDE.local.md
+
+# Configurazioni e chiavi di chi compila: nel pubblico arrivano come secret, non come file.
+android/app/google-services.json
+ios/Runner/GoogleService-Info.plist
+android/key.properties
+
+# Workflow che servono solo al manutentore (es. quelli che committano con la sua email
+# o che hanno input personali).
+# .github/workflows/<solo-privato>.yml
