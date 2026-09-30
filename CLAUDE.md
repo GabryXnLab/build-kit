@@ -20,6 +20,7 @@ Nessuna dipendenza, niente da compilare.
 ```text
 setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
+notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
 bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow run)
 ```
 
@@ -28,6 +29,7 @@ bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow r
 ```bash
 python3 -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('*/action.yml')]"
 bash -n bin/ci-batch && bin/ci-batch --list
+bash -n notify/notify.sh && shellcheck notify/notify.sh
 ```
 
 ## Architettura delle build
@@ -37,7 +39,8 @@ progetto (thin wrapper: solo scelte)          es. kagami/.github/workflows/build
   └─ uses: GabryXnLab/<stack>-ci/…@main        logica dello stack: flutter-ci | expo-ci | desktop-ci
        ├─ uses: GabryXnLab/build-kit/setup@main   worker, cache condivise, clear_cache
        ├─ uses: GabryXnLab/build-kit/x86-64@main  solo se serve un binario x86-64
-       └─ uses: GabryXnLab/ci-bot/notify@main     esito su Telegram
+       └─ uses: GabryXnLab/build-kit/notify@main  esito su Telegram (expo-ci e desktop-ci
+                                                  usano ancora ci-bot/notify, identica)
 ```
 
 Runner: `[self-hosted, nexus-core]` — **due istanze** sulla stessa macchina
@@ -48,6 +51,15 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
 
 - **`@main` è live per tutti**: i tre reusable usano `build-kit/…@main`. Input nuovi con
   default, mai rinominati né tolti senza aggiornare i chiamanti.
+- **Il repo è pubblico, e deve restarlo.** `flutter-ci` è chiamato anche da repo
+  pubblici, e un repo pubblico non può usare azioni di repo privati: GitHub le risolve
+  tutte all'avvio del job, anche quelle di uno step con un `if` falso. Per questo
+  `notify` è una copia di `ci-bot/notify` (che resta privato insieme al bot) e nessuna
+  azione contiene token, chat o chiavi: arrivano dal chiamante, e senza la notifica si
+  salta in silenzio. Finché expo-ci e desktop-ci usano `ci-bot/notify`, una modifica
+  all'una si porta nell'altra (le sole differenze volute sono testi e commenti).
+  Le azioni devono funzionare anche sui runner di GitHub (Linux e macOS): lì `setup`
+  scrive solo variabili d'ambiente, `x86-64` non serve (host x86-64).
 - **Sul self-hosted si va veloci facendo meno lavoro.** Misure su Kagami (APK release,
   26/09): 545 s, di cui 321 di `gen_snapshot` sotto QEMU, 51 di compilazione Dart, il resto
   Gradle quasi tutto dalla build cache. Da qui le regole sotto, in ordine di peso.
@@ -125,7 +137,7 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    (`local` = self-hosted | `eas` = cloud di Expo), perché l'alternativa a nexus-core lì è
    EAS e non un runner GitHub. Per questo `ci-batch -f runner=…` non vale per `ascend` e
    `riftgate-mobile`.
-3. **Nel reusable**, in quest'ordine: notifica di inizio (`ci-bot/notify`), checkout con
+3. **Nel reusable**, in quest'ordine: notifica di inizio (`build-kit/notify`), checkout con
    `clean: ${{ inputs.runner == 'github' }}` (o solo con `clear_cache`),
    `build-kit/setup`, eventuale `build-kit/x86-64`, pulizia delle sole cartelle del
    progetto se `clear_cache`, build, artefatto, notifica d'esito con `if: always()`.

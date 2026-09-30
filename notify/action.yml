@@ -1,0 +1,79 @@
+name: Notifica CI su Telegram
+description: >-
+  Esito di un job nel topic Telegram: gli artefatti come file se il job è riuscito, altrimenti
+  un messaggio con i pulsanti per rilanciare, vedere l'errore, correggere con AI e aprire il log.
+  Best-effort: non fa mai fallire il job. Token e chat arrivano dal chiamante; senza, non
+  manda niente e non avvisa (repo pubblico senza secret, fork).
+
+inputs:
+  bot_token:
+    description: 'Token del bot CI. Vuoto = nessuna notifica, in silenzio.'
+    required: false
+    default: ''
+  chat_id:
+    description: 'Chat del supergruppo (-100…). Vuoto = nessuna notifica, in silenzio; non un supergruppo = nessuna notifica, con un avviso.'
+    required: false
+    default: ''
+  topic_id:
+    description: 'message_thread_id del topic. Vuoto = nessuna notifica (mai nel General).'
+    required: false
+    default: ''
+  status:
+    description: >-
+      Esito del job: passare job.status (success | failure | cancelled). All'inizio di un job
+      lungo, 'started': manda «in corso» con il pulsante Annulla e restituisce message_id.
+    required: true
+  title:
+    description: 'Riga di intestazione, testo semplice (es. "Ascend preview APK").'
+    required: true
+  details:
+    description: 'Testo aggiuntivo, mostrato come blocco monospaziato (es. un riepilogo).'
+    required: false
+    default: ''
+  details_file:
+    description: 'File il cui contenuto si aggiunge a details (es. un riepilogo scritto da uno step).'
+    required: false
+    default: ''
+  run_inputs:
+    description: >-
+      Input del workflow_dispatch del run, come JSON: i reusable passano
+      toJSON(github.event.inputs). Mostrati nel messaggio, servono a ci-bot per rilanciare con
+      input cambiati (es. cache pulita). Vuoto o null = nessuno.
+    required: false
+    default: ''
+  message_id:
+    description: >-
+      message_id restituito dallo step con status started: l'esito riscrive quel messaggio
+      invece di mandarne un altro. Vuoto = messaggio nuovo.
+    required: false
+    default: ''
+  files:
+    description: >-
+      Un pattern per riga (glob bash con **), relativo alla radice del workspace. Usati solo
+      se il job è riuscito: ogni file trovato parte come documento.
+    required: false
+    default: ''
+
+outputs:
+  message_id:
+    description: 'Con status started: il message_id da ripassare allo step finale.'
+    value: ${{ steps.send.outputs.message_id }}
+
+runs:
+  using: composite
+  steps:
+    - id: send
+      shell: bash
+      env:
+        TG_TOKEN: ${{ inputs.bot_token }}
+        TG_CHAT: ${{ inputs.chat_id }}
+        TG_TOPIC: ${{ inputs.topic_id }}
+        STATUS: ${{ inputs.status }}
+        TITLE: ${{ inputs.title }}
+        DETAILS: ${{ inputs.details }}
+        DETAILS_FILE: ${{ inputs.details_file }}
+        FILES: ${{ inputs.files }}
+        RUN_INPUTS: ${{ inputs.run_inputs }}
+        MESSAGE_ID: ${{ inputs.message_id }}
+      run: |
+        bash "$GITHUB_ACTION_PATH/notify.sh" || echo "warn: notifica Telegram non inviata"

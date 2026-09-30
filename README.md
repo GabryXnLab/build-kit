@@ -43,6 +43,41 @@ Scrive in `GITHUB_ENV`:
 Su un host x86-64 `launcher` è vuoto. Lanciatori in `~/ci/tools/bin/x86-64-{box64,qemu}`,
 Box64 in `~/ci/tools/box64` (compilato da sé se manca), QEMU 10 in `~/qemu-x86_64-10`.
 
+## `notify` — esito su Telegram
+
+```yaml
+- id: started
+  uses: GabryXnLab/build-kit/notify@main
+  with:
+    bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+    topic_id: ${{ inputs.telegram_topic_id }}
+    status: started                          # all inizio: «in corso» con Annulla
+    title: ${{ inputs.app_name }} android release
+# … la build …
+- if: ${{ always() }}
+  uses: GabryXnLab/build-kit/notify@main
+  with:
+    message_id: ${{ steps.started.outputs.message_id }}   # riscrive lo stesso messaggio
+    bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+    chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+    topic_id: ${{ inputs.telegram_topic_id }}
+    status: ${{ job.status }}
+    title: ${{ inputs.app_name }} android release
+    files: build/app/outputs/flutter-apk/*.apk            # un modello per riga
+```
+
+Best-effort, non fa mai fallire il job. Manda solo in un topic di un supergruppo
+(`chat_id` `-100…`, mai in privato né nel General). **Senza token o chat non fa niente e
+non avvisa**: è il caso di un repo pubblico senza i secret di Telegram e di ogni fork.
+Gli artefatti partono come documenti fino a 50 MB, fino a ~2 GB se sul runner risponde un
+Local Bot API Server (`TELEGRAM_API_BASE`, default `http://localhost:8081`). I pulsanti
+(Annulla, Rilancia, Errore, Risolvi con AI, Rimanda artefatti) sono callback per il bot
+che li riceve: con `ci-bot` funzionano, con un altro bot restano muti.
+
+È la copia pubblica di `ci-bot/notify`, con gli stessi input: `ci-bot` resta privato, e un
+repo pubblico non può usare un'azione di un repo privato.
+
 ## `bin/ci-batch` — più build in un colpo
 
 ```bash
@@ -69,5 +104,6 @@ nel topic Build di Telegram. Un progetto nuovo si aggiunge alla tabella `TARGETS
 
 ## Visibilità
 
-Repo privato: `Settings → Actions → Access` consente l'uso ai repo dell'organizzazione,
-come `ci-bot`.
+Repo pubblico: lo usano anche i reusable chiamati da repo pubblici (`flutter-ci`), e GitHub
+risolve ogni `uses:` all'avvio del job, anche quello di uno step che non girerà. Qui non
+c'è niente di segreto: token, chat e chiavi arrivano sempre dal chiamante.
