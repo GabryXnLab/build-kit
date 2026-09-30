@@ -48,9 +48,16 @@ fi
 DEST=(-F "chat_id=${TG_CHAT}" -F "parse_mode=HTML")
 [ -n "$TG_TOPIC" ] && DEST+=(-F "message_thread_id=${TG_TOPIC}")
 
+# L'URL contiene il token: a curl arriva da stdin (-K -), perché negli argomenti lo
+# leggerebbe con ps qualunque utente della macchina del runner.
+curl_url() { # $1=URL, poi le opzioni di curl
+  local url=$1; shift
+  printf 'url = "%s"\n' "$url" | curl "$@" -K -
+}
+
 # Un Local Bot API Server sul runner, se c'è, porta l'upload da 50 MB a ~2 GB.
 TG_LOCAL="${TELEGRAM_API_BASE:-http://localhost:8081}"
-if curl -sf -m 5 "${TG_LOCAL}/bot${TG_TOKEN}/getMe" -o /dev/null 2>/dev/null; then
+if curl_url "${TG_LOCAL}/bot${TG_TOKEN}/getMe" -sf -m 5 -o /dev/null 2>/dev/null; then
   API="${TG_LOCAL}/bot${TG_TOKEN}"; MAX_BYTES=2097152000; MAX_LABEL="2 GB, server locale"
 else
   API="https://api.telegram.org/bot${TG_TOKEN}"; MAX_BYTES=52428800; MAX_LABEL="50 MB, Bot API cloud"
@@ -60,7 +67,7 @@ RESP="${RUNNER_TEMP:-/tmp}/tg_resp.json"
 call() { # $1=metodo, poi i campi -F
   local method=$1; shift
   local code
-  code=$(curl -s -o "$RESP" -w "%{http_code}" "${DEST[@]}" "$@" "${API}/${method}" || echo "000")
+  code=$(curl_url "${API}/${method}" -s -o "$RESP" -w "%{http_code}" "${DEST[@]}" "$@" || echo "000")
   if [ "$code" = "200" ]; then echo "Telegram ${method}: ok"; return 0; fi
   echo "warn: Telegram ${method} fallito (HTTP ${code})"; cat "$RESP" 2>/dev/null; echo
   return 1
