@@ -1,0 +1,32 @@
+# Modelli generici dello scanner anti-fuga, sempre attivi in ogni progetto.
+#
+# Formato: <dove> <id> <regex Python>, separati da spazi; la regex è il resto della riga.
+#   content  cerca in ogni riga dei file di testo e del messaggio di commit
+#   path     cerca nel percorso del file (anche per i binari)
+#   magic    cerca nei primi byte del file, in esadecimale minuscolo
+# Il rapporto dice solo id, file e riga: il valore trovato non si stampa mai.
+#
+# Qui solo ciò che è segreto per chiunque. Ciò che è personale (nomi di macchine,
+# indirizzi, email, org di servizi) sta nel `patterns` del progetto o nel secret
+# PUBLIC_SYNC_PATTERNS: questo repo è pubblico, e un modello dice già cosa cerca.
+# Le eccezioni stanno nell'`allow` del progetto, per file e per id.
+
+# Segreti di servizi
+content google-api-key      AIza[0-9A-Za-z_-]{35}
+content google-oauth-client [0-9]{6,}-[0-9a-z]{20,}\.apps\.googleusercontent\.com
+content firebase-config     "(mobilesdk_app_id|project_number|firebase_url)"\s*:
+content sentry-dsn          (ingest(\.[a-z]{2})?\.sentry\.io|https?://[0-9a-f]{32}@)
+content private-key-pem     -----BEGIN ([A-Z0-9]+ )*PRIVATE KEY-----
+content github-token        (\bgh[pousr]_[A-Za-z0-9]{36}|\bgithub_pat_[A-Za-z0-9_]{22,})
+content telegram-bot-token  \b[0-9]{8,10}:AA[0-9A-Za-z_-]{33}\b
+content slack-token         (\bxox[abposr]-[A-Za-z0-9-]{10,}|hooks\.slack\.com/services/)
+content aws-access-key      \b(AKIA|ASIA)[0-9A-Z]{16}\b
+content ai-api-key          \bsk-(ant-|proj-)?[A-Za-z0-9_-]{32,}
+content tauri-signing-key   rsign encrypted secret key
+
+# File che non devono esserci affatto
+path    google-services     (^|/)google-services\.json$
+path    google-service-info (^|/)GoogleService-Info\.plist$
+path    keystore            \.(jks|keystore|p12|pfx)$
+path    private-key-file    (^|/)(id_rsa|id_ed25519|id_ecdsa)$|\.pem$
+magic   java-keystore       ^feedfeed

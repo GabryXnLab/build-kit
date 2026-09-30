@@ -1,0 +1,20 @@
+name: Sync verso lo specchio pubblico
+description: >-
+  Mette a disposizione del job sync.py e i modelli generici dello scanner anti-fuga, alla
+  stessa ref di questa azione: l'output `path` è la cartella che li contiene. La usa il
+  reusable .github/workflows/public-sync.yml, che fa fetch, push, PR e issue.
+
+outputs:
+  path:
+    description: 'Cartella con sync.py e patterns (i modelli generici), da passare a python3.'
+    value: ${{ steps.path.outputs.path }}
+
+# Solo questo, e non tutto il sync: un reusable non conosce la propria ref (github.workflow_ref
+# e job.workflow_ref sono quelle del chiamante), un'azione sì, con github.action_path. Il
+# resto resta nel reusable, dove failure() e job.status valgono per il job intero.
+runs:
+  using: composite
+  steps:
+    - id: path
+      shell: bash
+      run: echo "path=$GITHUB_ACTION_PATH" >> "$GITHUB_OUTPUT"
