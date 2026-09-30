@@ -13,6 +13,7 @@
   <img src="https://img.shields.io/badge/GitHub%20Actions-composite%20actions-2088FF?logo=githubactions&logoColor=white" alt="Composite actions">
   <img src="https://img.shields.io/badge/runner-self--hosted%20ARM64%20%7C%20GitHub-4B5563" alt="Runner: self-hosted ARM64 o GitHub">
   <img src="https://img.shields.io/badge/dipendenze-nessuna-2EA043" alt="Nessuna dipendenza">
+  <a href="LICENSE"><img src="https://img.shields.io/badge/licenza-Apache%202.0-blue" alt="Licenza Apache 2.0"></a>
   <a href="https://github.com/GabryXnLab/build-kit/commits/main"><img src="https://img.shields.io/github/last-commit/GabryXnLab/build-kit?label=ultimo%20commit" alt="Ultimo commit"></a>
 </p>
 
@@ -360,4 +361,4 @@ Il reusable `public-sync` chiama a sua volta `build-kit/public-sync@main` e `bui
 
 ## Licenza
 
-Il repo non ha ancora un file di licenza: il codice è visibile e le azioni si possono chiamare, ma non è concesso esplicitamente in licenza.
+Distribuito con licenza [Apache 2.0](LICENSE): si può usare, copiare e adattare, anche in progetti commerciali, mantenendo l'avviso di licenza e segnalando i file modificati.
