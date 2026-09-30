@@ -1,0 +1,247 @@
+name: Sync pubblico
+
+# Reusable: porta main del repo privato che lo chiama nel suo specchio pubblico, meno i
+# file privati, come PR di un commit solo: la storia privata non esce mai. La logica sta in
+# public-sync/sync.py (azione GabryXnLab/build-kit/public-sync, che gira anche in locale);
+# qui ci sono i fetch, il push, la PR, la issue e la notifica. Il wrapper del progetto dà
+# trigger, permessi e concurrency. Vedi CLAUDE.md, «Pubblicare un progetto».
+
+on:
+  workflow_call:
+    inputs:
+      app_name:
+        description: 'Nome del progetto, per la notifica (es. Kagami).'
+        type: string
+        required: true
+      public_repo:
+        description: 'Lo specchio pubblico, owner/nome (es. GabryXnLab/kagami).'
+        type: string
+        required: true
+      config_dir:
+        description: 'Cartella del progetto con exclude, patterns e allow.'
+        type: string
+        default: '.github/public-sync'
+      baseline:
+        description: >-
+          Commit privato il cui albero è quello del commit iniziale del pubblico. Serve finché
+          il pubblico non ha un trailer di sync; dopo si può lasciare, non viene più usato.
+        type: string
+        default: ''
+      branch_prefix:
+        description: 'Prefisso dei branch di sync nel pubblico.'
+        type: string
+        default: 'sync/'
+      sync_trailer:
+        description: 'Trailer che nel pubblico indica l''ultimo commit privato arrivato.'
+        type: string
+        default: 'Private-Sync'
+      accept_trailer:
+        description: 'Trailer che nel privato dice che i contributi del pubblico fino a quel commit sono riportati.'
+        type: string
+        default: 'Public-Sync-Accept'
+      author_name:
+        description: 'Autore e committer del commit di sync.'
+        type: string
+        default: 'github-actions[bot]'
+      author_email:
+        type: string
+        default: '41898282+github-actions[bot]@users.noreply.github.com'
+      require_extra_patterns:
+        description: >-
+          Fallisce se il secret PUBLIC_SYNC_PATTERNS è vuoto: per chi ci tiene i modelli
+          personali, che senza il secret mancherebbero in silenzio.
+        type: boolean
+        default: false
+      dry_run:
+        description: 'Calcola commit, scanner e contributi del pubblico e li mostra nel riepilogo, senza push, PR né issue.'
+        type: boolean
+        default: false
+      runs_on:
+        description: >-
+          Etichette del runner, come JSON. Il self-hosted di default non consuma minuti privati;
+          `ubuntu-latest` non garantirebbe un runner di GitHub, perché uno dei self-hosted ne ha
+          l'etichetta.
+        type: string
+        default: '["self-hosted", "nexus-core"]'
+      telegram_topic_id:
+        description: 'Topic della notifica. Vuoto = nessuna notifica.'
+        type: string
+        default: '6'
+    secrets:
+      PUBLIC_SYNC_TOKEN:
+        description: 'PAT fine-grained sul solo repo pubblico: Contents, Pull requests e Workflows in scrittura.'
+        required: false
+      PUBLIC_SYNC_PATTERNS:
+        description: 'Modelli dello scanner in più, nel formato di patterns: quelli personali, che non stanno in nessun repo.'
+        required: false
+      TELEGRAM_BOT_TOKEN:
+        required: false
+      TELEGRAM_CHAT_ID:
+        required: false
+    outputs:
+      result:
+        description: 'noop | ready | pr-up-to-date | blocked-public | blocked-leak'
+        value: ${{ jobs.sync.outputs.result }}
+      pr_url:
+        value: ${{ jobs.sync.outputs.pr_url }}
+
+jobs:
+  sync:
+    # Solo in un repo privato: nello specchio, o in un fork pubblico, non c'è niente da portare.
+    if: ${{ github.event.repository.private }}
+    runs-on: ${{ fromJSON(inputs.runs_on) }}
+    timeout-minutes: 10
+    outputs:
+      result: ${{ steps.plan.outputs.result }}
+      pr_url: ${{ steps.publish.outputs.pr_url }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: kit
+        uses: GabryXnLab/build-kit/public-sync@main
+
+      - name: Main e branch di sync del pubblico
+        env:
+          # La config globale di una macchina condivisa può dare a git le credenziali di
+          # `gh`: qui non servono (il pubblico si legge senza) e nel push non devono entrare.
+          GIT_CONFIG_GLOBAL: /dev/null
+          PUBLIC_REPO: ${{ inputs.public_repo }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+        run: |
+          set -euo pipefail
+          git for-each-ref --format='delete %(refname)' refs/public refs/public-sync refs/public-sync-out \
+            | git update-ref --stdin
+          git fetch --no-tags "https://github.com/$PUBLIC_REPO.git" \
+            '+refs/heads/main:refs/public/main' "+refs/heads/${BRANCH_PREFIX}*:refs/public-sync/${BRANCH_PREFIX}*"
+
+      # In un file del job, mai negli argomenti né nel log: un modello dice già cosa cerca.
+      - name: Modelli personali dello scanner
+        env:
+          PATTERNS: ${{ secrets.PUBLIC_SYNC_PATTERNS }}
+          REQUIRED: ${{ inputs.require_extra_patterns }}
+          FILE: ${{ runner.temp }}/public-sync-patterns
+        run: |
+          set -euo pipefail
+          rm -f "$FILE"
+          if [ -n "$PATTERNS" ]; then
+            (umask 077 && printf '%s\n' "$PATTERNS" > "$FILE")
+          elif [ "$REQUIRED" = true ]; then
+            echo "::error::Manca il secret PUBLIC_SYNC_PATTERNS, e il wrapper lo richiede: senza, lo scanner non avrebbe i modelli personali."
+            exit 1
+          fi
+
+      - name: Prepara il commit
+        id: plan
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          KIT: ${{ steps.kit.outputs.path }}
+          CONFIG_DIR: ${{ inputs.config_dir }}
+          BASELINE: ${{ inputs.baseline }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          SYNC_TRAILER: ${{ inputs.sync_trailer }}
+          ACCEPT_TRAILER: ${{ inputs.accept_trailer }}
+          AUTHOR_NAME: ${{ inputs.author_name }}
+          AUTHOR_EMAIL: ${{ inputs.author_email }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          EXTRA: ${{ runner.temp }}/public-sync-patterns
+        run: |
+          args=(--out-dir "$RUNNER_TEMP/public-sync" --config-dir "$CONFIG_DIR" --baseline "$BASELINE"
+                --branch-prefix "$BRANCH_PREFIX" --sync-trailer "$SYNC_TRAILER" --accept-trailer "$ACCEPT_TRAILER"
+                --author-name "$AUTHOR_NAME" --author-email "$AUTHOR_EMAIL")
+          if [ -f "$EXTRA" ]; then args+=(--extra-patterns "$EXTRA"); fi
+          if [ "$DRY_RUN" = true ]; then args+=(--dry-run); fi
+          python3 "$KIT/sync.py" plan "${args[@]}"
+
+      - name: Patch dei contributi del pubblico
+        if: ${{ always() && steps.plan.outputs.result == 'blocked-public' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: public-sync
+          path: ${{ runner.temp }}/public-sync
+          retention-days: 30
+
+      - name: Issue per il riporto
+        if: ${{ failure() && steps.plan.outputs.result == 'blocked-public' && inputs.dry_run != true }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh
+          BODY: ${{ runner.temp }}/public-sync/issue.md
+        run: |
+          set -euo pipefail
+          title="Sync pubblico fermo: contributi del pubblico da riportare"
+          number=$(gh issue list --state open --search "in:title \"$title\"" \
+            --json number,title --jq ".[] | select(.title == \"$title\") | .number" | head -1)
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body-file "$BODY"
+          else
+            gh issue create --title "$title" --body-file "$BODY"
+          fi
+
+      - name: Push e PR sul pubblico
+        id: publish
+        if: ${{ contains(fromJSON('["ready", "noop"]'), steps.plan.outputs.result) && inputs.dry_run != true }}
+        env:
+          GIT_CONFIG_GLOBAL: /dev/null
+          GH_TOKEN: ${{ secrets.PUBLIC_SYNC_TOKEN }}
+          # Solo il token qui sopra: niente ripiego sull'accesso di `gh` della macchina.
+          GH_CONFIG_DIR: ${{ runner.temp }}/gh
+          PUBLIC_REPO: ${{ inputs.public_repo }}
+          BRANCH_PREFIX: ${{ inputs.branch_prefix }}
+          RESULT: ${{ steps.plan.outputs.result }}
+          SYNC_BRANCH: ${{ steps.plan.outputs.branch }}
+          COMMIT: ${{ steps.plan.outputs.commit }}
+          OUT: ${{ runner.temp }}/public-sync
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::Manca il secret PUBLIC_SYNC_TOKEN (PAT con accesso al repo pubblico)."
+            exit 1
+          fi
+          # Le PR di sync aperte, solo quelle con il branch nel pubblico stesso (non da fork).
+          # $ENV è di jq, non della shell: gli apici singoli sono voluti.
+          # shellcheck disable=SC2016
+          open=$(gh pr list -R "$PUBLIC_REPO" --state open --limit 100 \
+            --json number,headRefName,isCrossRepository \
+            --jq '.[] | select((.isCrossRepository | not) and (.headRefName | startswith($ENV.BRANCH_PREFIX))) | "\(.number) \(.headRefName)"')
+
+          keep=""
+          if [ "$RESULT" = noop ]; then
+            note="Il pubblico è già allineato a main privato: questa PR non serve più."
+          else
+            git push "https://x-access-token:${GH_TOKEN}@github.com/$PUBLIC_REPO.git" "+$COMMIT:refs/heads/$SYNC_BRANCH"
+            current=$(awk -v b="$SYNC_BRANCH" '$2 == b { print $1 }' <<< "$open")
+            if [ -n "$current" ]; then
+              gh pr edit -R "$PUBLIC_REPO" "$current" --title "$(cat "$OUT/pr-title.txt")" --body-file "$OUT/pr-body.md"
+              url=$(gh pr view -R "$PUBLIC_REPO" "$current" --json url --jq .url)
+            else
+              url=$(gh pr create -R "$PUBLIC_REPO" --base main --head "$SYNC_BRANCH" \
+                --title "$(cat "$OUT/pr-title.txt")" --body-file "$OUT/pr-body.md")
+            fi
+            echo "pr_url=$url" >> "$GITHUB_OUTPUT"
+            echo "PR: $url" >> "$GITHUB_STEP_SUMMARY"
+            note="Sostituita da $url, che comprende anche questi commit."
+            keep=$SYNC_BRANCH
+          fi
+
+          # Una PR di sync sola: le altre sono superate da questa, o dal pubblico già allineato.
+          while read -r number branch; do
+            if [ -z "$number" ] || [ "$branch" = "$keep" ]; then continue; fi
+            gh pr close -R "$PUBLIC_REPO" "$number" --delete-branch --comment "$note"
+            echo "Chiusa la PR #$number ($branch)." >> "$GITHUB_STEP_SUMMARY"
+          done <<< "$open"
+
+      - name: Notifica su Telegram
+        if: ${{ always() && inputs.dry_run != true && (failure() || steps.publish.outputs.pr_url != '') }}
+        uses: GabryXnLab/build-kit/notify@main
+        with:
+          run_inputs: ${{ toJSON(github.event.inputs) }}
+          bot_token: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          topic_id: ${{ inputs.telegram_topic_id }}
+          status: ${{ job.status }}
+          title: ${{ inputs.app_name }} sync pubblico
+          details: ${{ steps.publish.outputs.pr_url || steps.plan.outputs.result }}
