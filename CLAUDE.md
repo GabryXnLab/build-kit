@@ -39,8 +39,7 @@ progetto (thin wrapper: solo scelte)          es. kagami/.github/workflows/build
   └─ uses: GabryXnLab/<stack>-ci/…@main        logica dello stack: flutter-ci | expo-ci | desktop-ci
        ├─ uses: GabryXnLab/build-kit/setup@main   worker, cache condivise, clear_cache
        ├─ uses: GabryXnLab/build-kit/x86-64@main  solo se serve un binario x86-64
-       └─ uses: GabryXnLab/build-kit/notify@main  esito su Telegram (expo-ci e desktop-ci
-                                                  usano ancora ci-bot/notify, identica)
+       └─ uses: GabryXnLab/build-kit/notify@main  inizio ed esito su Telegram (tutti e tre)
 ```
 
 Runner: `[self-hosted, nexus-core]` — **due istanze** sulla stessa macchina
@@ -56,10 +55,23 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   tutte all'avvio del job, anche quelle di uno step con un `if` falso. Per questo
   `notify` è una copia di `ci-bot/notify` (che resta privato insieme al bot) e nessuna
   azione contiene token, chat o chiavi: arrivano dal chiamante, e senza la notifica si
-  salta in silenzio. Finché expo-ci e desktop-ci usano `ci-bot/notify`, una modifica
-  all'una si porta nell'altra (le sole differenze volute sono testi e commenti).
+  salta in silenzio. I tre reusable usano tutti `build-kit/notify`; `ci-bot/notify` resta
+  per i workflow privati che lo chiamano direttamente, e una modifica funzionale di qui si
+  porta là (differenze volute: testi, commenti e l'URL con il token passato a curl da
+  stdin, perché negli argomenti si legge con `ps`). Lo stesso vale per ogni `uses:` dei
+  reusable: solo azioni pubbliche, di qui o di terzi.
   Le azioni devono funzionare anche sui runner di GitHub (Linux e macOS): lì `setup`
   scrive solo variabili d'ambiente, `x86-64` non serve (host x86-64).
+- **Su `runner: github` la cache è quella di GitHub, nel reusable.** Un runner GitHub è
+  nuovo a ogni job e le cartelle della macchina non ci sono: ciò che sul self-hosted sta in
+  `~/.gradle`, pub-cache, store di pnpm, sccache lo riprende la cache di GitHub, che è per
+  repo (vale fra i run dello stesso progetto, non fra progetti). Sta nel reusable e non in
+  `setup` perché percorsi e chiavi sono dello stack: flutter-ci `flutter-action` con
+  `cache: true` (SDK e pub cache) e `gradle/actions/setup-gradle`; expo-ci lo store di pnpm
+  nei job EAS; desktop-ci `Swatinem/rust-cache` e lo store di pnpm o la cache di npm. Gli
+  step hanno `if` sul runner GitHub: sul self-hosted non girano, perché caricherebbero
+  gigabyte della macchina nella cache di GitHub. Con `clear_cache` la cache dei risultati
+  (cargo) non si riprende; le dipendenze scaricate sì, come sul self-hosted.
 - **Sul self-hosted si va veloci facendo meno lavoro.** Misure su Kagami (APK release,
   26/09): 545 s, di cui 321 di `gen_snapshot` sotto QEMU, 51 di compilazione Dart, il resto
   Gradle quasi tutto dalla build cache. Da qui le regole sotto, in ordine di peso.
@@ -144,7 +156,11 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    L'upload dell'artefatto ha `continue-on-error`: la quota di storage è dell'org (piano
    free, ricalcolata ogni 6-12 h) e piena non deve far fallire una build riuscita, che
    arriva comunque su Telegram. Resta bloccante solo dove un job successivo lo scarica
-   (release di `desktop-ci`).
+   (release di `desktop-ci`). Con `runner: github`, la cache di GitHub per ciò che sul
+   self-hosted è cache della macchina (vedi sopra). Anche update e verifiche hanno
+   notifica di inizio ed esito, e sul self-hosted non puliscono il checkout (la cartella di
+   lavoro è quella delle build del repo) salvo `clear_cache` o un motivo scritto:
+   `flutter-update` pulisce perché committa con `git add -A`.
 4. **Niente installazioni di sistema dal workflow** su nexus-core: SDK condivisi
    (`/opt/android-sdk`, `~/sdk/flutter`) si usano, non si modificano; gli strumenti propri
    della CI stanno in `~/ci/tools` e l'azione che li usa sa installarli da sola.
