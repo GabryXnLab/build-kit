@@ -26,6 +26,12 @@ inputs:
       dpkg-deb (nessuna installazione di sistema).
     required: false
     default: 'https://deb.debian.org/debian/pool/main/q/qemu/qemu-user_10.0.13+ds-0+deb13u1_arm64.deb'
+  qemu_deb_sha256:
+    description: >-
+      SHA-256 del pacchetto di qemu_deb_url, verificato prima di estrarlo: quello del default,
+      uguale all indice Packages di trixie. Chi cambia l URL cambia anche questo.
+    required: false
+    default: 'c73711af02b97cd5e2667e735d9c06890c57165517110ca4e646c95a7083158d'
 
 outputs:
   launcher:
@@ -50,6 +56,7 @@ runs:
         EMULATOR: ${{ inputs.emulator }}
         BOX64_COMMIT: ${{ inputs.box64_commit }}
         QEMU_DEB_URL: ${{ inputs.qemu_deb_url }}
+        QEMU_DEB_SHA256: ${{ inputs.qemu_deb_sha256 }}
       run: |
         set -euo pipefail
         if [ "$(uname -m)" != "aarch64" ]; then
@@ -92,6 +99,10 @@ runs:
         if [ ! -x "$QEMU" ]; then
           TMP=$(mktemp -d)
           curl -fsSL -o "$TMP/qemu-user.deb" "$QEMU_DEB_URL"
+          if ! echo "$QEMU_DEB_SHA256  $TMP/qemu-user.deb" | sha256sum -c -; then
+            echo "::error::$QEMU_DEB_URL non ha lo SHA-256 atteso ($QEMU_DEB_SHA256): con un URL diverso va passato anche qemu_deb_sha256."
+            exit 1
+          fi
           dpkg-deb -x "$TMP/qemu-user.deb" "$TMP/extracted"
           mkdir -p "$(dirname "$QEMU")"
           install -m 755 "$TMP/extracted/usr/bin/qemu-x86_64" "$QEMU"
