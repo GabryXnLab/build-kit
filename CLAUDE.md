@@ -3,7 +3,7 @@
 ## Cos'è
 
 I **componenti comuni delle build** di tutti i progetti dell'organizzazione: ciò che
-`flutter-ci`, `expo-ci` e `desktop-ci` facevano ognuno a modo suo (quanti worker, quali
+`flutter-ci`, `expo-ci`, `desktop-ci` e `android-ci` facevano ognuno a modo suo (quanti worker, quali
 cache, cosa vuol dire «pulire») sta qui una volta sola, come azioni composite, più lo
 script che lancia più build insieme. È il posto da cui parte chi scrive o rivede un
 workflow di build: la sezione «Come si scrive una build» è il modello da seguire.
@@ -48,10 +48,10 @@ actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, pla
 
 ```text
 progetto (thin wrapper: solo scelte)          es. kagami/.github/workflows/build-android.yml
-  └─ uses: GabryXnLab/<stack>-ci/…@main        logica dello stack: flutter-ci | expo-ci | desktop-ci
+  └─ uses: GabryXnLab/<stack>-ci/…@main        logica dello stack: flutter-ci | expo-ci | desktop-ci | android-ci
        ├─ uses: GabryXnLab/build-kit/setup@main   worker, cache condivise, clear_cache
        ├─ uses: GabryXnLab/build-kit/x86-64@main  solo se serve un binario x86-64
-       └─ uses: GabryXnLab/build-kit/notify@main  inizio ed esito su Telegram (tutti e tre)
+       └─ uses: GabryXnLab/build-kit/notify@main  inizio ed esito su Telegram (tutti e quattro)
 ```
 
 Runner: `[self-hosted, nexus-core]` — **due istanze** sulla stessa macchina
@@ -60,14 +60,14 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
 
 ## Note architetturali importanti
 
-- **`@main` è live per tutti**: i tre reusable usano `build-kit/…@main`. Input nuovi con
+- **`@main` è live per tutti**: i quattro reusable usano `build-kit/…@main`. Input nuovi con
   default, mai rinominati né tolti senza aggiornare i chiamanti.
 - **Il repo è pubblico, e deve restarlo.** `flutter-ci` è chiamato anche da repo
   pubblici, e un repo pubblico non può usare azioni di repo privati: GitHub le risolve
   tutte all'avvio del job, anche quelle di uno step con un `if` falso. Per questo
   `notify` è una copia di `ci-bot/notify` (che resta privato insieme al bot) e nessuna
   azione contiene token, chat o chiavi: arrivano dal chiamante, e senza la notifica si
-  salta in silenzio. I tre reusable usano tutti `build-kit/notify`; `ci-bot/notify` resta
+  salta in silenzio. I quattro reusable usano tutti `build-kit/notify`; `ci-bot/notify` resta
   per i workflow privati che lo chiamano direttamente, e una modifica funzionale di qui si
   porta là (differenze volute: testi, commenti e l'URL con il token passato a curl da
   stdin, perché negli argomenti si legge con `ps`). Lo stesso vale per ogni `uses:` dei
@@ -80,7 +80,8 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   repo (vale fra i run dello stesso progetto, non fra progetti). Sta nel reusable e non in
   `setup` perché percorsi e chiavi sono dello stack: flutter-ci `flutter-action` con
   `cache: true` (SDK e pub cache) e `gradle/actions/setup-gradle`; expo-ci lo store di pnpm
-  nei job EAS; desktop-ci `Swatinem/rust-cache` e lo store di pnpm o la cache di npm. Gli
+  nei job EAS; desktop-ci `Swatinem/rust-cache` e lo store di pnpm o la cache di npm; android-ci
+  `gradle/actions/setup-gradle`, `Swatinem/rust-cache` e `actions/cache` per cargo-ndk. Gli
   step hanno `if` sul runner GitHub: sul self-hosted non girano, perché caricherebbero
   gigabyte della macchina nella cache di GitHub. Con `clear_cache` la cache dei risultati
   (cargo) non si riprende; le dipendenze scaricate sì, come sul self-hosted.
@@ -177,7 +178,8 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
    (`/opt/android-sdk`, `~/sdk/flutter`) si usano, non si modificano; gli strumenti propri
    della CI stanno in `~/ci/tools` e l'azione che li usa sa installarli da sola.
 5. **Parità fra progetti dello stesso stack** (oggi: Ascend e Riftgate su `expo-ci`,
-   Kagami su `flutter-ci`, Riftgate desktop su `desktop-ci`): stessi input, stesse
+   Kagami su `flutter-ci`, Riftgate desktop su `desktop-ci`, Riftgate Android nativo su
+   `android-ci`): stessi input, stesse
    descrizioni, `run-name` con le scelte, esito nel topic Build (`telegram_topic_id: '6'`)
    per build **e** update, secret per nome. Una miglioria nasce nel reusable o qui, non in
    un wrapper; se tocca un wrapper, si porta negli altri nello stesso giro o si scrive
@@ -263,7 +265,7 @@ repo privato                                              specchio pubblico
   dell'org non serve i repo pubblici, quindi il self-hosted lì non c'è (un wrapper
   self-hosted portato dal sync resta in coda se lanciato), e un repo pubblico ha minuti
   gratis, macOS compreso. Per lo stesso motivo lì si usano solo azioni e reusable
-  pubblici: `flutter-ci`, `desktop-ci`, `expo-ci` e questo repo. Nel privato gli stessi
+  pubblici: `flutter-ci`, `desktop-ci`, `expo-ci`, `android-ci` e questo repo. Nel privato gli stessi
   workflow partono solo a mano (un minuto macOS del piano ne vale dieci).
 - **I template stanno qui e non nei `<stack>-ci`**: la pubblicazione attraversa gli stack
   (il sync è uguale per tutti) e la checklist è una sola. Si copiano, non si referenziano:

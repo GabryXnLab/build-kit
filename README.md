@@ -6,6 +6,7 @@
   <a href="https://github.com/GabryXnLab/flutter-ci">flutter-ci</a> ·
   <a href="https://github.com/GabryXnLab/expo-ci">expo-ci</a> ·
   <a href="https://github.com/GabryXnLab/desktop-ci">desktop-ci</a> ·
+  <a href="https://github.com/GabryXnLab/android-ci">android-ci</a> ·
   <a href="https://github.com/GabryXnLab/build-kit"><b>build-kit</b></a>
 </p>
 
@@ -28,7 +29,7 @@
 - **Le cache condivise non le distrugge nessuno.** Gradle, pub, lo store di pnpm, ccache e sccache servono a tutti i progetti della macchina. `clear_cache` le rende *non fidate per quel run* (build cache di Gradle spenta, ccache e sccache in `RECACHE`) e cancella solo le cartelle del progetto: una build «pulita» non costa più la build seguente a tutti gli altri.
 - **Cache che valgono fra progetti e fra runner.** ccache lavora con `CCACHE_BASEDIR=$HOME`, quindi un oggetto compilato nel checkout di un runner vale anche per l'altro runner e per un altro progetto con la stessa dipendenza. sccache fa lo stesso per le dipendenze Rust.
 - **Worker `auto` sulle CPU libere.** Sul self-hosted prende le CPU libere in quel momento (CPU meno il carico, mai sotto 2), su GitHub tutte. Arriva a Gradle (`GRADLE_OPTS -D`, che prevale sulla configurazione della macchina solo per quel run), a cargo e a CMake.
-- **Stessi input ovunque.** `runner`, `max_workers` e `clear_cache` hanno nome, valori e significato identici in `flutter-ci`, `expo-ci` e `desktop-ci`, perché li interpreta tutti questa stessa azione.
+- **Stessi input ovunque.** `runner`, `max_workers` e `clear_cache` hanno nome, valori e significato identici in `flutter-ci`, `expo-ci`, `desktop-ci` e `android-ci`, perché li interpreta tutti questa stessa azione.
 - **Esito su Telegram con l'artefatto allegato.** Un messaggio «in corso» con il pulsante Annulla, riscritto con l'esito a fine job: se il job riesce ci sono i file (fino a 50 MB, o circa 2 GB con un Local Bot API Server), altrimenti i pulsanti per rilanciare. Non fa mai fallire il job, e senza secret tace.
 - **Specchio pubblico senza fughe.** `public-sync` porta `main` di un repo privato nello specchio pubblico come PR di **un commit solo**, dopo uno scanner anti-fuga che controlla ogni file, il messaggio e la descrizione. La storia privata non esce mai.
 - **Zero dipendenze.** Bash con `set -euo pipefail` e `python3` di sola libreria standard: niente da installare, niente da compilare.
@@ -75,7 +76,7 @@ La notifica di inizio e d'esito, facoltativa (senza secret non manda niente):
       files: build/app/outputs/flutter-apk/*.apk              # un modello per riga
 ```
 
-Per una build Flutter, Expo o Tauri completa non servono queste azioni una per una: usa il reusable dello stack ([flutter-ci](https://github.com/GabryXnLab/flutter-ci), [expo-ci](https://github.com/GabryXnLab/expo-ci), [desktop-ci](https://github.com/GabryXnLab/desktop-ci)), che le chiama già.
+Per una build Flutter, Expo, Tauri o Android nativa completa non servono queste azioni una per una: usa il reusable dello stack ([flutter-ci](https://github.com/GabryXnLab/flutter-ci), [expo-ci](https://github.com/GabryXnLab/expo-ci), [desktop-ci](https://github.com/GabryXnLab/desktop-ci), [android-ci](https://github.com/GabryXnLab/android-ci)), che le chiama già.
 
 ## Cosa c'è
 
@@ -282,15 +283,18 @@ flowchart LR
   P["Progetto<br/><i>thin wrapper: solo le scelte</i>"]
   P --> F["flutter-ci<br/>build · check · update"]
   P --> E["expo-ci<br/>build · update OTA"]
-  P --> D["desktop-ci<br/>tauri-build"]
+  P --> D["desktop-ci<br/>tauri-build · gpui-build"]
+  P --> A["android-ci<br/>android-build"]
   F --> S["build-kit/setup<br/>worker · cache · clear_cache"]
   E --> S
   D --> S
+  A --> S
   F --> X["build-kit/x86-64<br/>Box64 · QEMU 10"]
   E --> X
   F --> N["build-kit/notify<br/>Telegram"]
   E --> N
   D --> N
+  A --> N
   classDef here fill:#F5B544,stroke:#B7791F,color:#111827
   class S,X,N here
 ```
@@ -333,7 +337,7 @@ Il reusable `public-sync` chiama a sua volta `build-kit/public-sync@main` e `bui
 
 ## Per chi lo mantiene
 
-- **`@main` è live per tutti**: i tre reusable usano `build-kit/…@main`. Input nuovi con default, mai rinominati né tolti senza aggiornare i chiamanti.
+- **`@main` è live per tutti**: i quattro reusable usano `build-kit/…@main`. Input nuovi con default, mai rinominati né tolti senza aggiornare i chiamanti.
 - **Il repo deve restare pubblico**: GitHub risolve ogni `uses:` all'avvio del job, anche quello di uno step che non girerà, e un repo pubblico non può usare azioni di repo privati. Qui non c'è niente di segreto: token, chat e chiavi arrivano sempre dal chiamante.
 - **Cache condivise della macchina** (sul runner self-hosted dell'org, due istanze sulla stessa macchina):
 
