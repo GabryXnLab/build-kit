@@ -30,6 +30,7 @@ bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow r
 public-sync/         specchio pubblico: sync.py (piano, commit, scanner), patterns generici,
                      test_sync.py, action.yml che dà al job la cartella dello script
 .github/workflows/public-sync.yml   il reusable del sync: fetch, push, PR, issue, notifica
+flake.nix, nix/      toolchain di build comuni (Nix): devShell di progetto da rust-toolchain.toml + moduli gpui/android/go
 templates/publish/   da copiare in un progetto: wrapper del sync, exclude/patterns/allow
                      d'esempio, build e release dello specchio per flutter/, desktop/, expo/
 ```
@@ -43,6 +44,36 @@ bash -n notify/notify.sh && shellcheck notify/notify.sh
 python3 -m py_compile public-sync/sync.py && python3 -B -m unittest public-sync/test_sync.py
 actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, placeholder sostituiti
 ```
+
+## Toolchain Nix comuni (flake)
+
+`flake.nix` espone `lib.mkDevShell { system; toolchain; modules; android; extraPackages; }`: un devShell
+con Rust letto dal `rust-toolchain.toml` del progetto (rust-overlay: versione, target e componenti), più moduli
+facoltativi in `nix/`: `gpui` (librerie di GPUI in `LD_LIBRARY_PATH`, mesa di nixpkgs perché il mesa-git di
+chaotic su ohos chiede glibc 2.43, header di dbus/gtk per i crate -sys), `android` (JDK 17, cargo-ndk,
+SDK/NDK minimale da `androidenv` senza emulatore: per l'emulatore c'è il kit `agent-skills/ohos-emulator`; si può
+passare `android.sdk` per usare il suo), `go`. Serve dove la toolchain non si installa con rustup/apt (ohos, NixOS);
+nexus-core e la CI continuano con rustup, che rispetta lo stesso `rust-toolchain.toml`.
+
+Un progetto lo adotta così:
+
+1. `rust-toolchain.toml` nella radice (channel, target, componenti).
+2. `flake.nix` sottile:
+   ```nix
+   { inputs.build-kit.url = "github:GabryXnLab/build-kit";
+     outputs = { build-kit, ... }: { devShells = build-kit.lib.eachSystem (system: {
+       default = build-kit.lib.mkDevShell { inherit system; toolchain = ./rust-toolchain.toml; modules = [ "gpui" ]; };
+     }); }; }
+   ```
+3. `nix flake lock` e commit di `flake.lock` (un solo nixpkgs e un solo rust-overlay: quelli di build-kit). Per
+   aggiornare tutti: `nix flake update build-kit` nel progetto.
+4. Uso: `nix develop` oppure, per script, `nix print-dev-env .#default > env.sh` messo in cache per hash del
+   `flake.lock` e poi `source` (esempio: `scripts/agent/remoto.sh` di Riftgate).
+
+Per impacchettare un binario GPUI: `build-kit.lib.gpuiRuntime pkgs` dà `runtime`, `env` per `makeWrapper`.
+Substituter: bastano `cache.nixos.org` e `nix-community.cachix.org`; se `/etc/nix/nix.conf` ne ha uno
+irraggiungibile, `NIX_CONFIG="substituters = https://cache.nixos.org/ https://nix-community.cachix.org"`.
+La prima valutazione del modulo `android` scarica NDK e build-tools (minuti), poi è in cache.
 
 ## Architettura delle build
 
