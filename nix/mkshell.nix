@@ -16,7 +16,9 @@ let
   gpui = import ./gpui.nix { inherit pkgs; };
   droid = import ./android.nix ({ inherit pkgs; } // android);
   # Gli header di sistema per i crate -sys (pkg-config) e libclang per bindgen.
-  base = [ rust pkgs.rust-analyzer pkgs.pkg-config pkgs.cmake pkgs.perl pkgs.clang ];
+  base = [ rust pkgs.rust-analyzer pkgs.pkg-config pkgs.cmake pkgs.perl pkgs.clang ]
+    # Strumenti che i test si aspettano di trovare (su NixOS non ci sono in /usr/bin): openssl, tmux, procps, which.
+    ++ [ pkgs.openssl pkgs.tmux pkgs.procps pkgs.which ];
 in
 pkgs.mkShell ({
   packages = base ++ extraPackages
