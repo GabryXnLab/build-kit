@@ -36,6 +36,10 @@ inputs:
     description: 'Livelli ammessi, in virgola: nexus,ohos,ubicloud. «nexus» da solo per firme presenti solo su nexus-core.'
     required: false
     default: 'nexus,ohos,ubicloud'
+  repo:
+    description: 'Repo che chiede il runner: fuori da ubicloud-repos.txt il livello Ubicloud è escluso. Vuoto = nessun filtro.'
+    required: false
+    default: ${{ github.repository }}
   jitter:
     description: 'false = niente attesa casuale 0-15 s (che spezza le scelte simultanee di build lanciate insieme).'
     required: false
@@ -68,5 +72,6 @@ runs:
         PICK_UBICLOUD_SIZE: ${{ inputs.ubicloud_size }}
         PICK_REPOS: ${{ inputs.repos }}
         PICK_ALLOW: ${{ inputs.allow }}
+        PICK_REPO: ${{ inputs.repo }}
         PICK_JITTER: ${{ inputs.jitter }}
       run: python3 "$GITHUB_ACTION_PATH/pick_runner.py"

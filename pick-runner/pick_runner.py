@@ -75,6 +75,20 @@ def eligible_levels(allow, target_arch):
     return levels
 
 
+def ubicloud_allowed(repo, listed):
+    """Vero se `repo` (nome o owner/nome) è nell'elenco; senza repo non si filtra."""
+    if not repo:
+        return True
+    name = repo.split("/")[-1].lower()
+    return name in {r.split("/")[-1].lower() for r in listed}
+
+
+def read_repo_list(path):
+    with open(path) as f:
+        lines = (ln.split("#")[0].strip() for ln in f)
+        return [ln for ln in lines if ln]
+
+
 def ubicloud_label(size, arch):
     return f"ubicloud-standard-{size}" + ("-arm" if arch == "arm64" else "")
 
@@ -99,9 +113,12 @@ def fallback(levels, arch, size, why):
     return result("nexus", arch, size, f"{why}: nessun livello ammesso, ripiego su nexus")
 
 
-def pick(get, org, arch, size, repos, allow, target_arch):
+def pick(get, org, arch, size, repos, allow, target_arch, repo=None, ubicloud_repos=()):
     if target_arch != "any":
         arch = target_arch
+    if "ubicloud" in allow and not ubicloud_allowed(repo, ubicloud_repos):
+        # Ubicloud costa: i repo fuori elenco restano su nexus/ohos e, se pieni, in coda su nexus.
+        allow = allow - {"ubicloud"}
     levels = eligible_levels(allow, target_arch)
     if get is None:
         return fallback(levels, arch, size, "token mancante"), []
@@ -154,7 +171,9 @@ def main():
     if env("PICK_JITTER", "true") == "true":
         time.sleep(random.uniform(0, 15))
     get = (lambda p: http_get(p, token)) if token else None
-    res, table = pick(get, env("PICK_ORG", "GabryXnLab"), arch, env("PICK_UBICLOUD_SIZE", "8"), repos, allow, target_arch)
+    listed = read_repo_list(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ubicloud-repos.txt"))
+    res, table = pick(get, env("PICK_ORG", "GabryXnLab"), arch, env("PICK_UBICLOUD_SIZE", "8"), repos, allow,
+                      target_arch, env("PICK_REPO", ""), listed)
 
     print(f"pick-runner: {res['reason']} -> {res['runs_on']}")
     out = env("GITHUB_OUTPUT")

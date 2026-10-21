@@ -56,7 +56,9 @@ Ordine nexus-core, ohos, `ubicloud-standard-<N>`: il primo livello con capacità
 ARM64 e ohos X64: per le build che producono un binario dell'host (desktop) `target_arch` esclude il
 livello di architettura sbagliata; per Android/EAS resta `any`. `allow=nexus` serve alle firme che esistono
 solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubicloud se nexus è escluso
-dall'architettura). `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
+dall'architettura). **Allowlist Ubicloud**: `pick-runner/ubicloud-repos.txt` (un repo per riga, `#` commenti) elenca i repo
+che possono usare Ubicloud; per gli altri (`github.repository`, o input `repo`) il livello è escluso: solo nexus e ohos e,
+se pieni, coda su nexus. Un repo nuovo si aggiunge a quel file. `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
 
 ## Cache remota (in sviluppo sul branch auto-runner)
 

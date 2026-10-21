@@ -34,8 +34,8 @@ def fake_api(name):
     return get
 
 
-def run(name, allow=ALL, arch="x64", target="any", repos=("kagami", "ascend")):
-    res, _ = pr.pick(fake_api(name), "GabryXnLab", arch, "8", list(repos), set(allow), target)
+def run(name, allow=ALL, arch="x64", target="any", repos=("kagami", "ascend"), repo=None, listed=("ascend", "Riftgate")):
+    res, _ = pr.pick(fake_api(name), "GabryXnLab", arch, "8", list(repos), set(allow), target, repo, listed)
     return res
 
 
@@ -105,6 +105,27 @@ class PickRunner(unittest.TestCase):
 
     def test_allow_senza_ubicloud(self):
         self.assertEqual(run("entrambi_occupati", allow={"nexus", "ohos"})["profile"], "nexus")
+
+    def test_repo_in_elenco_usa_ubicloud(self):
+        self.assertEqual(run("entrambi_occupati", repo="GabryXnLab/ascend")["profile"], "ephemeral")
+
+    def test_repo_fuori_elenco_usa_ohos(self):
+        self.assertEqual(run("nexus_occupato_ohos_libero", repo="GabryXnLab/altro")["profile"], "ohos")
+
+    def test_repo_fuori_elenco_tutto_pieno_coda_su_nexus(self):
+        r = run("entrambi_occupati", repo="GabryXnLab/altro")
+        self.assertEqual((r["profile"], json.loads(r["runs_on"])), ("nexus", ["self-hosted", "nexus-core"]))
+
+    def test_elenco_file_ignora_commenti(self):
+        import tempfile
+        with tempfile.NamedTemporaryFile("w", suffix=".txt") as f:
+            f.write("# c\nascend  # x\n\nRiftgate\n")
+            f.flush()
+            self.assertEqual(pr.read_repo_list(f.name), ["ascend", "Riftgate"])
+
+    def test_elenco_reale_ha_i_tre_repo(self):
+        listed = pr.read_repo_list(os.path.join(os.path.dirname(pr.__file__), "ubicloud-repos.txt"))
+        self.assertEqual(sorted(listed), ["Riftgate", "ascend", "kagami-private"])
 
     def test_main_input_non_validi(self):
         os.environ["PICK_ALLOW"] = "nexus,boh"
