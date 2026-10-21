@@ -23,7 +23,9 @@ niente da compilare.
 ## Struttura
 
 ```text
-setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione
+setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione,
+                     cache remota facoltativa (remote_cache); gx-remote-cache.gradle è il suo init script
+docs/cache-contract.md  prefissi, metadati e pulizia del bucket della cache remota
 pick-runner/         sceglie il runner (nexus-core, ohos, Ubicloud): action.yml, pick_runner.py, tests/ con fixture dell'API
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
@@ -55,6 +57,19 @@ ARM64 e ohos X64: per le build che producono un binario dell'host (desktop) `tar
 livello di architettura sbagliata; per Android/EAS resta `any`. `allow=nexus` serve alle firme che esistono
 solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubicloud se nexus è escluso
 dall'architettura). `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
+
+## Cache remota (in sviluppo sul branch auto-runner)
+
+`setup` con `remote_cache: true` usa un bucket S3 (contratto in `docs/cache-contract.md`). Credenziali: input
+`cache_env` (testo del `.env`, da un secret per nome) o il file della macchina; si leggono solo le chiavi note,
+si mascherano, e senza si salta. Gradle: `HttpBuildCache` verso un URL pre-autenticato (PAR OCI di tipo prefisso,
+lettura e scrittura su `v1/gradle/build-cache/`, una chiave mancante dà 404 = miss), attivo su ogni profilo e
+in push anche da nexus, che scalda gli altri; l'init script è inerte senza `GX_REMOTE_CACHE`, quindi le build
+a mano non cambiano, e `clear_cache` lo spegne. sccache su S3 solo fuori da nexus (lì resta il disco, la cache
+calda): S3 sostituisce il disco, non si somma. sccache 0.18 ha `SCCACHE_MULTILEVEL_CHAIN=disk,s3` (con
+`SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY`), non ancora usato. La chiave di sccache dipende dai percorsi passati
+a rustc (`-L` della cartella target): un hit fra macchine chiede gli stessi percorsi, quindi i prefissi sono
+per profilo e architettura.
 
 ## Toolchain Nix comuni (flake)
 
