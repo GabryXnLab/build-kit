@@ -6,7 +6,9 @@ description: >-
 
 inputs:
   runner:
-    description: 'self-hosted (nexus-core) | github. Sul self-hosted accende le cache condivise della macchina.'
+    description: >-
+      self-hosted (nexus-core) | github | ohos | ubicloud. Su self-hosted e ohos accende le cache
+      condivise della macchina; ubicloud si comporta come github finché la cache remota non c'è.
     required: false
     default: 'self-hosted'
   max_workers:
@@ -50,9 +52,15 @@ runs:
         RUST: ${{ inputs.rust }}
         CARGO_KEY: ${{ inputs.cargo_target_key }}
         SCCACHE_VERSION: '0.18.0'
-        SCCACHE_SHA256: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
+        SCCACHE_SHA256_AARCH64: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
+        SCCACHE_SHA256_X86_64: '45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89'
       run: |
         set -euo pipefail
+        # ubicloud è un runner effimero come quelli di GitHub (macchina nuova a ogni job, niente
+        # cartelle di ~/ci né cache condivise): tratta come github finché la cache remota (fase
+        # successiva) non gli dà una cache propria. ohos segue il ramo self-hosted, che usa solo
+        # $HOME e comandi presenti anche lì; i percorsi assoluti di nexus stanno nei reusable.
+        if [ "$RUNNER_KIND" = "ubicloud" ]; then RUNNER_KIND=github; fi
         # Gira anche sui runner Windows e macOS di desktop-ci, dove /proc non c'è.
         CPUS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)
         LOAD=0
@@ -103,9 +111,14 @@ runs:
             if [ ! -x "$TOOLS/sccache" ]; then
               mkdir -p "$TOOLS"
               TMP=$(mktemp -d)
-              NAME="sccache-v$SCCACHE_VERSION-aarch64-unknown-linux-musl"
+              case "$(uname -m)" in
+                aarch64|arm64) ARCH=aarch64; SHA=$SCCACHE_SHA256_AARCH64 ;;
+                x86_64|amd64)  ARCH=x86_64;  SHA=$SCCACHE_SHA256_X86_64 ;;
+                *) echo "::error::architettura non supportata per sccache: $(uname -m)"; exit 1 ;;
+              esac
+              NAME="sccache-v$SCCACHE_VERSION-$ARCH-unknown-linux-musl"
               curl -fsSL -o "$TMP/s.tgz" "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/$NAME.tar.gz"
-              echo "$SCCACHE_SHA256  $TMP/s.tgz" | sha256sum -c -
+              echo "$SHA  $TMP/s.tgz" | sha256sum -c -
               tar -xzf "$TMP/s.tgz" -C "$TMP"
               install -m 755 "$TMP/$NAME/sccache" "$TOOLS/sccache.new"
               mv "$TOOLS/sccache.new" "$TOOLS/sccache"
