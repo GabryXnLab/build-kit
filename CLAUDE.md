@@ -24,6 +24,7 @@ niente da compilare.
 
 ```text
 setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione
+pick-runner/         sceglie il runner (nexus-core, ohos, Ubicloud): action.yml, pick_runner.py, tests/ con fixture dell'API
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
 bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow run)
@@ -39,11 +40,21 @@ templates/publish/   da copiare in un progetto: wrapper del sync, exclude/patter
 
 ```bash
 python3 -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('*/action.yml')]"
+python3 -B -m unittest discover -s pick-runner/tests   # pick-runner con risposte finte dell'API
 bash -n bin/ci-batch && bin/ci-batch --list
 bash -n notify/notify.sh && shellcheck notify/notify.sh
 python3 -m py_compile public-sync/sync.py && python3 -B -m unittest public-sync/test_sync.py
 actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, placeholder sostituiti
 ```
+
+## Scelta del runner (pick-runner, in sviluppo sul branch auto-runner)
+
+Ordine nexus-core, ohos, `ubicloud-standard-<N>`: il primo livello con capacità libera, cioè runner
+`online` e non `busy` con la sua etichetta meno i job `queued` che la chiedono nei `repos` dati. nexus è
+ARM64 e ohos X64: per le build che producono un binario dell'host (desktop) `target_arch` esclude il
+livello di architettura sbagliata; per Android/EAS resta `any`. `allow=nexus` serve alle firme che esistono
+solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubicloud se nexus è escluso
+dall'architettura). `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
 
 ## Toolchain Nix comuni (flake)
 
