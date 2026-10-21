@@ -1,0 +1,15 @@
+// Installato da build-kit/setup in $GRADLE_USER_HOME/init.d/. Senza GX_REMOTE_CACHE non fa niente: le
+// build lanciate a mano sulla macchina restano come prima. GX_REMOTE_CACHE è l'URL (PAR) del prefisso
+// v1/gradle/build-cache/ del bucket (docs/cache-contract.md); setup non la imposta con clear_cache.
+def remoteUrl = System.getenv('GX_REMOTE_CACHE')
+if (remoteUrl) {
+    gradle.settingsEvaluated { settings ->
+        settings.buildCache {
+            local { enabled = true }
+            remote(HttpBuildCache) {
+                url = remoteUrl.endsWith('/') ? remoteUrl : remoteUrl + '/'
+                push = true
+            }
+        }
+    }
+}
