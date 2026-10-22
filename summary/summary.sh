@@ -12,9 +12,15 @@ slug() { printf '%s' "$1" | tr 'A-Z' 'a-z' | tr -c 'a-z0-9\n' '_' | sed 's/__*/_
 # Fasi: durata dei passi del job in corso (API), quelli sotto 5 s esclusi.
 FASI=n/d; TOTALE=n/d
 if [ -n "${GH_TOKEN:-}" ] && command -v jq >/dev/null 2>&1; then
-  J=$(curl -fsS --max-time 15 -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-        "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" 2>/dev/null \
-      | jq -c --arg r "${RUNNER_NAME:-}" '[.jobs[] | select(.runner_name == $r and .status == "in_progress")] | first // empty' 2>/dev/null || true)
+  JOBS_JSON=$(mktemp)
+  CODE=$(curl -sS --max-time 15 -o "$JOBS_JSON" -w '%{http_code}' -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+        "${GITHUB_API_URL:-https://api.github.com}/repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/${GITHUB_RUN_ATTEMPT:-1}/jobs?per_page=100" 2>&1 || true)
+  J=""
+  if [ "$CODE" = 200 ]; then
+    J=$(jq -c --arg r "${RUNNER_NAME:-}" '[.jobs[] | select(.runner_name == $r and .status == "in_progress")] | .[0] // empty' "$JOBS_JSON" 2>&1 || true)
+  fi
+  [ -n "$J" ] || echo "build-kit/summary: job non trovato (API HTTP $CODE), fasi non disponibili"
+  rm -f "$JOBS_JSON"
   if [ -n "$J" ]; then
     FASI=$(printf '%s' "$J" | jq -r '.steps[] | select(.completed_at != null and .started_at != null)
         | [(.name), ((.completed_at | fromdateiso8601) - (.started_at | fromdateiso8601))] | @tsv' 2>/dev/null \
