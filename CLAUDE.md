@@ -53,8 +53,12 @@ actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, pla
 
 ## Scelta del runner (pick-runner, in sviluppo sul branch auto-runner)
 
-Ordine nexus-core, ohos, `ubicloud-standard-<N>`: il primo livello con capacità libera, cioè runner
-`online` e non `busy` con la sua etichetta meno i job `queued` che la chiedono nei `repos` dati. nexus è
+Ordine nexus-core, ohos, `ubicloud-standard-<N>`; per i repo in allowlist nexus-core, `ubicloud-standard-<N>`, ohos (Ubicloud
+sempre pronto, ohos può essere spento): il primo livello con capacità libera, cioè runner
+`online` e non `busy` con la sua etichetta meno i job `queued` che la chiedono nei `repos` dati. Per i repo in allowlist nexus
+è contato per **macchina** (le due istanze sono le stesse 4 CPU): libero solo se nessuna istanza è `busy` e nessun job è in
+coda con la sua etichetta, quindi la seconda build lanciata insieme va su Ubicloud; fuori allowlist si conta per istanza e la
+seconda build si affianca (meglio che la coda). nexus è
 ARM64 e ohos X64: per le build che producono un binario dell'host (desktop) `target_arch` esclude il
 livello di architettura sbagliata; per Android/EAS resta `any`. `allow=nexus` serve alle firme che esistono
 solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubicloud se nexus è escluso
@@ -259,8 +263,7 @@ gradle=cache:<n>,uptodate:<n>,eseguiti:<n>,altri:<n>,totale:<n> s3=<tipo>:<esito
    4 = tutta la macchina, 2 = lascia spazio a un'altra build.»
    Unica eccezione voluta: lo stack Expo (`expo-ci`) non ha `runner` ma `build_target`
    (`local` = self-hosted | `eas` = cloud di Expo), perché l'alternativa a nexus-core lì è
-   EAS e non un runner GitHub. Per questo `ci-batch -f runner=…` non vale per `ascend` e
-   `riftgate-mobile`.
+   EAS e non un runner GitHub. Per questo `ci-batch -f runner=…` non vale per `ascend`.
 3. **Nel reusable**, in quest'ordine: notifica di inizio (`build-kit/notify`), checkout con
    `clean: ${{ inputs.runner == 'github' }}` (o solo con `clear_cache`),
    `build-kit/setup`, eventuale `build-kit/x86-64`, pulizia delle sole cartelle del

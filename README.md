@@ -352,7 +352,7 @@ Il reusable `public-sync` chiama a sua volta `build-kit/public-sync@main` e `bui
   | target di cargo | `~/ci/cache/cargo-target/<repo>` | workflow dello stesso repo |
   | Box64, sccache, lanciatori | `~/ci/tools` | — |
 
-- **Più build in un colpo**: `bin/ci-batch --list`, `bin/ci-batch kagami riftgate-mobile`, `bin/ci-batch -f max_workers=2 kagami@feature-x`. Ogni build va sul primo runner libero; un progetto nuovo si aggiunge alla tabella `TARGETS`.
+- **Più build in un colpo**: `bin/ci-batch --list`, `bin/ci-batch kagami riftgate-android`, `bin/ci-batch -f max_workers=2 kagami@feature-x`. Ogni build va sul primo runner libero; un progetto nuovo si aggiunge alla tabella `TARGETS`.
 - **Controlli prima di un push**:
 
   ```bash

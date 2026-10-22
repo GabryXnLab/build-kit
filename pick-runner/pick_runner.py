@@ -14,6 +14,9 @@ import urllib.request
 
 API = "https://api.github.com"
 ORDER = ("nexus", "ohos", "ubicloud")
+# Con Ubicloud ammesso (repo in allowlist) il runner effimero passa davanti a ohos: sempre pronto, non
+# dipende da un PC che può essere spento.
+ORDER_PAID = ("nexus", "ubicloud", "ohos")
 # Architettura nativa dei runner self-hosted: serve per le build che producono un binario
 # dell'architettura dell'host (desktop), non per quelle che girano ovunque (Android).
 NATIVE_ARCH = {"nexus": "arm64", "ohos": "x64"}
@@ -41,6 +44,14 @@ def free_runners(runners, label):
         if r.get("status") == "online"
         and not r.get("busy")
         and label in {lb["name"] for lb in r.get("labels", [])}
+    )
+
+
+def busy_runners(runners, label):
+    return sum(
+        1
+        for r in runners
+        if r.get("status") == "online" and r.get("busy") and label in {lb["name"] for lb in r.get("labels", [])}
     )
 
 
@@ -79,7 +90,7 @@ def ohos_stuck_before(get, repo, run_id, attempt, label=LABEL["ohos"]):
 
 def eligible_levels(allow, target_arch):
     levels = []
-    for level in ORDER:
+    for level in (ORDER_PAID if "ubicloud" in allow else ORDER):
         if level not in allow:
             continue
         if target_arch != "any" and level in NATIVE_ARCH and NATIVE_ARCH[level] != target_arch:
@@ -141,6 +152,7 @@ def pick(get, org, arch, size, repos, allow, target_arch, repo=None, ubicloud_re
     except (urllib.error.URLError, OSError, ValueError, KeyError) as exc:
         return fallback(levels, arch, size, f"API non raggiungibile ({exc})"), []
 
+    paid = "ubicloud" in levels
     table = []
     for level in levels:
         if level == "ubicloud":
@@ -148,10 +160,17 @@ def pick(get, org, arch, size, repos, allow, target_arch, repo=None, ubicloud_re
             continue
         free = free_runners(runners, LABEL[level])
         wait = queued.get(LABEL[level], 0)
-        table.append((level, free, wait, free - wait))
+        cap = free - wait
+        if level == "nexus" and paid:
+            # Le due istanze sono la stessa macchina da 4 CPU: una seconda build affiancata
+            # rallenta entrambe, e con Ubicloud ammesso conviene il runner effimero. Fuori
+            # allowlist si affianca comunque (meglio che stare in coda).
+            busy = busy_runners(runners, LABEL[level])
+            cap = 1 if free > 0 and busy == 0 and wait == 0 else 0
+        table.append((level, free, wait, cap))
     for level, _, _, cap in table:
         if level == "ubicloud":
-            return result(level, arch, size, "nexus e ohos senza capacità libera: runner effimero"
+            return result(level, arch, size, "nexus senza capacità libera: runner effimero"
                           if len(table) > 1 else "solo ubicloud ammesso"), table
         if cap > 0:
             return result(level, arch, size, f"{level} con capacità libera {cap}"), table

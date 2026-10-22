@@ -78,7 +78,7 @@ class PickRunner(unittest.TestCase):
         self.assertEqual((r["profile"], json.loads(r["runs_on"]), r["arch"]), ("nexus", ["self-hosted", "nexus-core"], "arm64"))
 
     def test_nexus_occupato_ohos_libero(self):
-        r = run("nexus_occupato_ohos_libero")
+        r = run("nexus_occupato_ohos_libero", repo="GabryXnLab/altro")
         self.assertEqual((r["profile"], json.loads(r["runs_on"]), r["arch"]), ("ohos", ["self-hosted", "ohos"], "x64"))
 
     def test_entrambi_occupati(self):
@@ -89,8 +89,8 @@ class PickRunner(unittest.TestCase):
         self.assertEqual(run("ohos_offline")["profile"], "ephemeral")
 
     def test_coda_satura_nexus(self):
-        # due runner liberi, due job in coda su nexus-core: il terzo va a ohos
-        self.assertEqual(run("coda_satura_nexus")["profile"], "ohos")
+        # due runner liberi, due job in coda su nexus-core: fuori allowlist il terzo va a ohos
+        self.assertEqual(run("coda_satura_nexus", repo="GabryXnLab/altro")["profile"], "ohos")
 
     def test_coda_satura_nexus_e_ohos(self):
         self.assertEqual(run("coda_satura_nexus_e_ohos")["profile"], "ephemeral")
@@ -104,7 +104,7 @@ class PickRunner(unittest.TestCase):
         self.assertEqual((json.loads(r["runs_on"]), r["arch"]), (["ubicloud-standard-8-arm"], "arm64"))
 
     def test_target_x64_esclude_nexus(self):
-        r = run("nexus_libero", target="x64")
+        r = run("nexus_libero", target="x64", repo="GabryXnLab/altro")
         self.assertEqual(r["profile"], "ohos")
 
     def test_target_arm64_esclude_ohos(self):
@@ -141,6 +141,38 @@ class PickRunner(unittest.TestCase):
 
     def test_repo_in_elenco_usa_ubicloud(self):
         self.assertEqual(run("entrambi_occupati", repo="GabryXnLab/ascend")["profile"], "ephemeral")
+
+    def test_allowlist_nexus_libero_vince(self):
+        self.assertEqual(run("nexus_libero", repo="GabryXnLab/ascend")["profile"], "nexus")
+
+    def test_allowlist_una_istanza_occupata_va_su_ubicloud(self):
+        # la seconda istanza è libera ma è la stessa macchina: Ubicloud, non ohos
+        self.assertEqual(run("nexus_una_occupata_ohos_libero", repo="GabryXnLab/ascend")["profile"], "ephemeral")
+
+    def test_fuori_allowlist_una_istanza_occupata_affianca_su_nexus(self):
+        self.assertEqual(run("nexus_una_occupata_ohos_libero", repo="GabryXnLab/altro")["profile"], "nexus")
+
+    def test_allowlist_nexus_occupato_ubicloud_prima_di_ohos(self):
+        self.assertEqual(run("nexus_occupato_ohos_libero", repo="GabryXnLab/ascend")["profile"], "ephemeral")
+
+    def test_allowlist_coda_su_nexus_va_su_ubicloud(self):
+        # istanze libere ma un job già in coda su nexus-core: la macchina è promessa
+        self.assertEqual(run("coda_satura_nexus", repo="GabryXnLab/ascend")["profile"], "ephemeral")
+
+    def test_allowlist_target_x64_ubicloud_prima_di_ohos(self):
+        r = run("nexus_libero", target="x64", repo="GabryXnLab/ascend")
+        self.assertEqual(json.loads(r["runs_on"]), ["ubicloud-standard-8"])
+
+    def test_allowlist_target_arm64_nexus_libero(self):
+        self.assertEqual(run("nexus_libero", target="arm64", repo="GabryXnLab/ascend")["profile"], "nexus")
+
+    def test_allowlist_ohos_escluso_dalla_sentinella_resta_ubicloud(self):
+        r = run("nexus_occupato_ohos_libero", allow={"nexus", "ubicloud"}, repo="GabryXnLab/ascend")
+        self.assertEqual(r["profile"], "ephemeral")
+
+    def test_allowlist_senza_ubicloud_ohos_dopo_nexus(self):
+        r = run("nexus_occupato_ohos_libero", allow={"nexus", "ohos"}, repo="GabryXnLab/ascend")
+        self.assertEqual(r["profile"], "ohos")
 
     def test_repo_fuori_elenco_usa_ohos(self):
         self.assertEqual(run("nexus_occupato_ohos_libero", repo="GabryXnLab/altro")["profile"], "ohos")

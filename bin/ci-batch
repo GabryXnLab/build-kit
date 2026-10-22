@@ -2,7 +2,7 @@
 # Lancia insieme le build di più progetti. Ogni build va sul primo runner libero: con due
 # istanze su nexus-core ne girano due alla volta, le altre aspettano in fila.
 #
-#   ci-batch kagami riftgate-mobile                  # tutte con i loro default
+#   ci-batch kagami riftgate-android                  # tutte con i loro default
 #   ci-batch -f max_workers=2 kagami riftgate-desktop@feature-x riftgate-android
 #   ci-batch --list
 #
@@ -14,7 +14,6 @@ set -euo pipefail
 # alias → repo, workflow, input fissi
 declare -A TARGETS=(
   [kagami]="GabryXnLab/kagami-private build-android.yml"
-  [riftgate-mobile]="GabryXnLab/Riftgate build-mobile.yml"
   [riftgate-desktop]="GabryXnLab/Riftgate build-desktop-native.yml"
   [riftgate-android]="GabryXnLab/Riftgate build-android-native.yml"
   [ascend]="GabryXnLab/ascend manual-eas-build.yml -f build_target=local"

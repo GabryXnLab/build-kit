@@ -1,7 +1,7 @@
 name: Scelta del runner
 description: >-
-  Sceglie dove far girare una build in ordine nexus-core, ohos, runner effimero Ubicloud:
-  il primo livello con capacità libera (runner online e non occupati meno i job già in coda
+  Sceglie dove far girare una build in ordine nexus-core, ohos, runner effimero Ubicloud
+  (per i repo in allowlist nexus-core, Ubicloud, ohos; nexus contato per macchina): il primo livello con capacità libera (runner online e non occupati meno i job già in coda
   con la sua etichetta). Senza token o con l'API in errore ripiega su nexus-core, come prima.
 
 inputs:
