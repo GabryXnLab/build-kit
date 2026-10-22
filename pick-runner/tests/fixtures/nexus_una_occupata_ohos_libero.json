@@ -1,0 +1,65 @@
+{
+ "runners": {
+  "total_count": 3,
+  "runners": [
+   {
+    "name": "nexus-core",
+    "status": "online",
+    "busy": true,
+    "labels": [
+     {
+      "name": "self-hosted"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "ARM64"
+     },
+     {
+      "name": "nexus-core"
+     }
+    ]
+   },
+   {
+    "name": "nexus-core-2",
+    "status": "online",
+    "busy": false,
+    "labels": [
+     {
+      "name": "self-hosted"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "ARM64"
+     },
+     {
+      "name": "nexus-core"
+     }
+    ]
+   },
+   {
+    "name": "ohos",
+    "status": "online",
+    "busy": false,
+    "labels": [
+     {
+      "name": "self-hosted"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "X64"
+     },
+     {
+      "name": "ohos"
+     }
+    ]
+   }
+  ]
+ },
+ "repos": {}
+}
