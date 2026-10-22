@@ -59,6 +59,10 @@ solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubiclou
 dall'architettura). **Allowlist Ubicloud**: `pick-runner/ubicloud-repos.txt` (un repo per riga, `#` commenti) elenca i repo
 che possono usare Ubicloud; per gli altri (`github.repository`, o input `repo`) il livello è escluso: solo nexus e ohos e,
 se pieni, coda su nexus. Un repo nuovo si aggiunge a quel file. `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
+**Sentinella**: ohos può essere spento ma ancora `online` per GitHub. `ci-bot` annulla il run con un job in coda su `ohos`
+da più di 10 minuti e lo rilancia per intero (`rerun`, nuovo tentativo, stessi input); `pick-runner` dal tentativo 2 guarda i
+job del tentativo precedente e, se uno con etichetta `ohos` è stato annullato senza runner, toglie `ohos` da `allow`. Nessun
+input da ricostruire: serve il rilancio completo (non `rerun-failed-jobs`), altrimenti `pick` non rigira.
 
 ## Cache remota (in sviluppo sul branch auto-runner)
 
