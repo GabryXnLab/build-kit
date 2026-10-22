@@ -187,7 +187,7 @@ def main():
     if get and "ohos" in allow:
         try:
             if ohos_stuck_before(get, env("GITHUB_REPOSITORY", ""), env("GITHUB_RUN_ID", ""),
-                                 int(env("GITHUB_RUN_ATTEMPT", "1"))):
+                                 int(env("GITHUB_RUN_ATTEMPT", "1")), env("PICK_OHOS_LABEL", LABEL["ohos"])):
                 allow = allow - {"ohos"}
                 print("pick-runner: tentativo precedente rimasto in coda su ohos: ohos escluso")
         except (urllib.error.URLError, OSError, ValueError):
