@@ -48,7 +48,7 @@ def attempts_api(jobs):
 
 
 class OhosStuck(unittest.TestCase):
-    cancelled = {"conclusion": "cancelled", "runner_id": None, "labels": ["self-hosted", "ohos"]}
+    cancelled = {"conclusion": "cancelled", "runner_id": 0, "labels": ["self-hosted", "ohos"]}
 
     def stuck(self, jobs, attempt=2, label="ohos"):
         return pr.ohos_stuck_before(attempts_api(jobs), "GabryXnLab/ascend", "1", attempt, label)

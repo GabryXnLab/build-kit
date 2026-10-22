@@ -72,7 +72,7 @@ def ohos_stuck_before(get, repo, run_id, attempt, label=LABEL["ohos"]):
         return False
     jobs = get(f"/repos/{repo}/actions/runs/{run_id}/attempts/{attempt - 1}/jobs?per_page=100")
     return any(
-        j.get("conclusion") == "cancelled" and j.get("runner_id") is None and label in j.get("labels", [])
+        j.get("conclusion") == "cancelled" and not j.get("runner_id") and label in j.get("labels", [])
         for j in jobs.get("jobs", [])
     )
 
