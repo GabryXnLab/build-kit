@@ -212,6 +212,9 @@ runs:
             mkdir -p "$CARGO_DIR"
             {
               echo "RUSTC_WRAPPER=$TOOLS/sccache"
+              # Il server esce dopo 600 s senza richieste: un passo lungo senza rustc (link con LTO fat, task Gradle
+              # dopo cargo-ndk) lo spegne e --show-stats a fine job riparte da 0/0 (misurato con IDLE_TIMEOUT=5).
+              echo "SCCACHE_IDLE_TIMEOUT=7200"
               echo "SCCACHE_DIR=$HOME/.cache/sccache"
               echo "SCCACHE_CACHE_SIZE=3G"
               echo "CARGO_TARGET_DIR=$CARGO_DIR"
@@ -234,6 +237,9 @@ runs:
             install_sccache
             {
               echo "RUSTC_WRAPPER=$TOOLS/sccache"
+              # Il server esce dopo 600 s senza richieste: un passo lungo senza rustc (link con LTO fat, task Gradle
+              # dopo cargo-ndk) lo spegne e --show-stats a fine job riparte da 0/0 (misurato con IDLE_TIMEOUT=5).
+              echo "SCCACHE_IDLE_TIMEOUT=7200"
               echo "CARGO_INCREMENTAL=0"
             } >> "$GITHUB_ENV"
             if [ "$CLEAR_CACHE" = "true" ]; then echo "SCCACHE_RECACHE=1" >> "$GITHUB_ENV"; fi
