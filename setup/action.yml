@@ -249,6 +249,14 @@ runs:
             echo "AWS_REGION=$C_AWS_REGION"
           } >> "$GITHUB_ENV"
         fi
+        # Conteggio dei task Gradle per build-kit/summary; il file è per job, l'init script inerte senza la variabile.
+        STATS_INIT="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+        mkdir -p "$STATS_INIT"
+        if ! cmp -s "$GITHUB_ACTION_PATH/gx-task-stats.gradle" "$STATS_INIT/gx-task-stats.gradle"; then
+          cp "$GITHUB_ACTION_PATH/gx-task-stats.gradle" "$STATS_INIT/gx-task-stats.gradle"
+        fi
+        : > "$RUNNER_TEMP/gx-task-stats.log"
+        echo "GX_TASK_STATS=$RUNNER_TEMP/gx-task-stats.log" >> "$GITHUB_ENV"
         echo "cargo_target_dir=$CARGO_DIR" >> "$GITHUB_OUTPUT"
 
         MEM_GB="?"

@@ -1,0 +1,16 @@
+// Installato da build-kit/setup in $GRADLE_USER_HOME/init.d/. Inerte senza GX_TASK_STATS: con la variabile
+// scrive una riga «ESITO :percorso» per task in quel file, da cui build-kit/summary conta task da cache,
+// aggiornati ed eseguiti anche quando Gradle lo lancia un altro strumento (flutter build) che ne nasconde l'output.
+def gxStatsFile = System.getenv('GX_TASK_STATS')
+if (gxStatsFile) {
+    gradle.taskGraph.afterTask { task, state ->
+        String outcome
+        if (state.skipMessage == 'FROM-CACHE') outcome = 'FROM_CACHE'
+        else if (state.skipMessage == 'UP-TO-DATE') outcome = 'UP_TO_DATE'
+        else if (state.skipMessage == 'NO-SOURCE') outcome = 'NO_SOURCE'
+        else if (state.skipped) outcome = 'SKIPPED'
+        else if (state.failure != null) outcome = 'FAILED'
+        else outcome = 'EXECUTED'
+        new File(gxStatsFile).withWriterAppend { it.println("${outcome} ${task.path}") }
+    }
+}

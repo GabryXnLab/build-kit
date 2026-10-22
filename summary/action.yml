@@ -1,0 +1,37 @@
+name: Riassunto di cache e tempi del job
+description: >-
+  Scrive nel GITHUB_STEP_SUMMARY e nell'output `line` una riga compatta con runner, architettura, durata per
+  fase, hit di sccache (dal server del job), task Gradle da cache/aggiornati/eseguiti e archivi s3-cache.
+  Formato in CLAUDE.md, sezione «Riassunto di cache». Da mettere a fine job con `if: always()`, prima della
+  notifica; non fallisce mai la build.
+
+inputs:
+  stack:
+    description: 'flutter | android | expo | desktop (solo etichetta).'
+    required: false
+    default: ''
+  profile:
+    description: 'Profilo del runner (nexus | ohos | ephemeral), per l etichetta.'
+    required: false
+    default: ''
+  token:
+    description: 'Token per leggere i passi del job dall API (durata per fase). Senza, le fasi sono n/d.'
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  line:
+    description: 'La riga compatta chiave=valore.'
+    value: ${{ steps.summary.outputs.line }}
+
+runs:
+  using: composite
+  steps:
+    - id: summary
+      shell: bash
+      env:
+        STACK: ${{ inputs.stack }}
+        PROFILE: ${{ inputs.profile }}
+        GH_TOKEN: ${{ inputs.token }}
+        JOB_STATUS: ${{ job.status }}
+      run: bash "$GITHUB_ACTION_PATH/summary.sh" || echo "::warning::build-kit/summary: riassunto non prodotto"

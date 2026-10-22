@@ -17,6 +17,8 @@ S5CMD_SHA256_ARM64=1439f0d00ecedcd2a2f1f2c6749bbb0152b2257bf5086f29646ec8ae38798
 
 warn() { echo "::warning::s3-cache: $*"; }
 note() { echo "s3-cache: $*"; }
+# Una riga per archivio (modo, tipo, esito, MB, secondi) che build-kit/summary legge a fine job.
+ev() { printf '%s\t%s\t%s\t%s\t%s\n' "$MODE" "$1" "$2" "$3" "$4" >> "$STATE_DIR/events.tsv"; }
 
 # Repo pubblici e fork mai: la chiave di scrittura non deve arrivare a codice di terzi.
 if [ "$(uname -s)" != "Linux" ]; then note "solo Linux, si salta"; exit 0; fi
@@ -133,6 +135,7 @@ restore_item() { # tipo|percorsi|glob|versione
        && zstd -dcq "$f" | tar -xf - -C "$HOME"; then
       size=$(( $(stat -c %s "$f") / 1048576 ))
       note "$tipo: $status ${found##*/} (${size} MB, $((SECONDS - t0)) s)"
+      ev "$tipo" "$status" "$size" "$((SECONDS - t0))"
       touch_index "$found"
     else
       warn "$tipo: archivio $found illeggibile, si ricostruisce"
@@ -141,6 +144,7 @@ restore_item() { # tipo|percorsi|glob|versione
     rm -f "$f"
   else
     note "$tipo: miss ($name)"
+    ev "$tipo" miss 0 0
   fi
   printf '%s\t%s\t%s\t%s\t%s\n' "$tipo" "$status" "$key" "$paths" "$tool" >> "$STATE"
 }
@@ -171,6 +175,7 @@ save_item() { # riga di stato
        --metadata "gx-tool-version=$tool" --metadata "gx-arch=$ARCH" --metadata "gx-run=${GITHUB_RUN_ID:-0}" \
        "$f" "s3://$BUCKET/$key" >/dev/null 2>&1; then
     note "$tipo: salvato ${key##*/} (${size} MB, $((SECONDS - t0)) s)"
+    ev "$tipo" salvato "$size" "$((SECONDS - t0))"
     touch_index "$key"
   else
     warn "$tipo: upload di $key fallito"
