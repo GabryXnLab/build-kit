@@ -29,6 +29,7 @@ docs/cache-contract.md  prefissi, metadati e pulizia del bucket della cache remo
 nix-env/action.yml   carica nel job il devShell di un flake del progetto (profilo ohos): GITHUB_ENV/GITHUB_PATH, in cache per hash
 pick-runner/         sceglie il runner (nexus-core, ohos, Ubicloud): action.yml, pick_runner.py, tests/ con fixture dell'API
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
+summary/             riassunto di cache e tempi a fine job (step summary + output `line`): action.yml, summary.sh
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
 bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow run)
 public-sync/         specchio pubblico: sync.py (piano, commit, scanner), patterns generici,
@@ -217,6 +218,30 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   (4 GB di heap ciascuna più Kotlin), tre no. Nessuno dei due ha le etichette
   `ubuntu-latest`/`ubuntu-24.04` (tolte il 2026-10-21 dal primo, che prendeva anche job
   destinati a GitHub): quei job consumano minuti GitHub.
+
+## Riassunto di cache (`summary`)
+
+A fine job (`if: always()`, prima della notifica) i reusable chiamano `build-kit/summary`: scrive una tabella nel
+`GITHUB_STEP_SUMMARY` e l'output `line`, che il job espone come output `cache_summary` (e il reusable come
+output di `workflow_call`). Serve a ci-bot (storico dei run) e a chi misura senza grep dei log. Formato stabile:
+token `chiave=valore` separati da uno spazio, nessuno spazio dentro un valore, `n/d` se il dato manca.
+
+```text
+runner=<nome> profile=<nexus|ohos|ephemeral> arch=<x64|arm64> stack=<flutter|android|expo|desktop> totale=<N>s
+fasi=<passo>:<N>s,... sccache=hit:<n>,miss:<n>,req:<n>,backend:<s3|local|...>
+gradle=cache:<n>,uptodate:<n>,eseguiti:<n>,altri:<n>,totale:<n> s3=<tipo>:<esito>:<MB>MB:<s>s,...
+```
+
+- `fasi`: i passi del job con durata >= 5 s (slug del nome, `Set up job`/`Post`/`Complete job` esclusi), letti
+  dall'API dei job del run. Il token del run non ha `actions:read`: l'azione usa `RUNNER_PICK_TOKEN` (stesso
+  secret di pick-runner) e senza token o senza `jq` le fasi sono `n/d`.
+- `sccache`: `--show-stats` del server del job (stesse variabili d'ambiente di cargo), con il backend che dichiara.
+  Il log mostra anche `SCCACHE_*` (senza chiavi) e i server vivi: serve a capire quando i conti non tornano.
+- `gradle`: lo scrive l'init script `setup/gx-task-stats.gradle` (installato da `setup`, inerte senza
+  `GX_TASK_STATS`) con una riga per task; funziona anche quando Gradle lo lancia `flutter build` e ne
+  nasconde l'output. `eseguiti` = task realmente eseguiti, `altri` = NO-SOURCE/SKIPPED.
+- `s3`: un elemento per archivio di `s3-cache` (`exact|fallback|miss` al restore, `save-<tipo>:salvato` al
+  salvataggio; MB e secondi); lo scrive `s3cache.sh` in `$RUNNER_TEMP/gx-s3-cache/events.tsv`.
 
 ## Come si scrive una build (modello per progetti nuovi)
 
