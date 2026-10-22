@@ -100,6 +100,14 @@ hash_of() { # $1 = glob separati da virgola, $2 = versione strumento
   { printf '%s\n' "$tool"; while IFS= read -r f; do cat "${GITHUB_WORKSPACE:-.}/$f"; done <<< "$files"; } | sha256sum | cut -c1-16
 }
 
+local_populated() { # vero se ogni percorso è una cartella con almeno un file
+  local p
+  for p in $(rel_paths "$1"); do
+    [ -d "$HOME/$p" ] && [ -n "$(find "$HOME/$p" -type f -print -quit 2>/dev/null)" ] || return 1
+  done
+  [ -n "$(rel_paths "$1")" ]
+}
+
 touch_index() { # $1 = chiave completa dell'oggetto
   local idx="v1/index/${1#v1/}.json" f
   f=$(mktemp)
@@ -119,6 +127,15 @@ restore_item() { # tipo|percorsi|glob|versione
   if [ "$CLEAR_CACHE" = "true" ]; then
     note "$tipo: clear_cache, niente ripristino"
     printf '%s\t%s\t%s\t%s\t%s\n' "$tipo" skip "$key" "$paths" "$tool" >> "$STATE"; return 0
+  fi
+  # Runner con home persistente (ohos): se i percorsi sono già popolati scaricare 1 GB sarebbe
+  # più lento di lasciare a Gradle/pnpm i pochi pacchetti mancanti. Si controlla solo se la chiave
+  # esiste, perché il save sul miss resta quello di prima.
+  if local_populated "$paths"; then
+    if s3 ls "s3://$BUCKET/$key" >/dev/null 2>&1; then status=exact; else status=miss; fi
+    note "$tipo: percorsi locali già popolati, niente download ($status)"
+    ev "$tipo" locale 0 0
+    printf '%s\t%s\t%s\t%s\t%s\n' "$tipo" "$status" "$key" "$paths" "$tool" >> "$STATE"; return 0
   fi
   found=""
   if s3 ls "s3://$BUCKET/$key" >/dev/null 2>&1; then

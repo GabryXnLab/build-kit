@@ -67,7 +67,9 @@ RESP="${RUNNER_TEMP:-/tmp}/tg_resp.json"
 call() { # $1=metodo, poi i campi -F
   local method=$1; shift
   local code
-  code=$(curl_url "${API}/${method}" -s -o "$RESP" -w "%{http_code}" "${DEST[@]}" "$@" || echo "000")
+  # Timeout breve per il testo (una notifica di inizio ha stallato 184 s), lungo per sendDocument.
+  local limit=20; [ "$method" = sendDocument ] && limit=600
+  code=$(curl_url "${API}/${method}" -s --connect-timeout 5 -m "$limit" -o "$RESP" -w "%{http_code}" "${DEST[@]}" "$@" || echo "000")
   if [ "$code" = "200" ]; then echo "Telegram ${method}: ok"; return 0; fi
   echo "warn: Telegram ${method} fallito (HTTP ${code})"; cat "$RESP" 2>/dev/null; echo
   return 1
