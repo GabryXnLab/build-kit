@@ -78,6 +78,13 @@ calda): S3 sostituisce il disco, non si somma. sccache 0.18 ha `SCCACHE_MULTILEV
 a rustc (`-L` della cartella target): un hit fra macchine chiede gli stessi percorsi, quindi i prefissi sono
 per profilo e architettura.
 
+## Archivi di dipendenze (`s3-cache`)
+
+`s3-cache` ripristina e salva su `v1/deps/` (contratto in `docs/cache-contract.md`) gli archivi `.tar.zst` di pnpm-store,
+pub-cache, gradle-modules/wrapper e cargo-registry, con `s5cmd` fissato per sha256 e chiave = hash dei lockfile più
+versione dello strumento (ripiego su un prefisso più largo). Lo usano i reusable solo con `runner=auto` e profilo diverso
+da nexus (nexus ha il disco caldo); senza credenziali salta. Test offline: `bash s3-cache/tests/test.sh`.
+
 ## Toolchain Nix comuni (flake)
 
 `flake.nix` espone `lib.mkDevShell { system; toolchain; modules; android; extraPackages; }`: un devShell

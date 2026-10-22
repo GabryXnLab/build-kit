@@ -20,7 +20,7 @@ pulisce (il futuro gestore Rust). Un cambio incompatibile alza la radice (`v2/`)
 | `v1/rust/sccache/<profilo>-<arch>/` | sccache (`SCCACHE_S3_KEY_PREFIX`) | oggetti di sccache, formato suo |
 | `v1/gradle/build-cache/<chiave>` | Gradle `HttpBuildCache` | voci della build cache, chiave = hash di Gradle |
 | `v1/deps/<stack>/<tipo>/<os-arch>/<chiave>.tar.zst` | `s3-cache` (fase 4b) | archivi di dipendenze |
-| `v1/index/<percorso dell'oggetto>.json` | `s3-cache` | `last_used` dell'archivio |
+| `v1/index/deps/<stack>/<tipo>/<os-arch>/<archivio>.json` | `s3-cache` | `last_used` dell'archivio (stesso percorso di `v1/deps/…` senza `v1/`, con `.json` al posto di `.tar.zst`) |
 
 - `<profilo>`: `nexus` | `ohos` | `ubicloud` | `github` (il valore di `runner` di `setup`, `self-hosted` =
   `nexus`); `<arch>`: `x64` | `arm64`. Profili diversi non si mescolano: compilatori e percorsi cambiano.
@@ -34,7 +34,7 @@ pulisce (il futuro gestore Rust). Un cambio incompatibile alza la radice (`v2/`)
 - Gli archivi di `deps/` portano `x-amz-meta-gx-schema` (`1`), `gx-repo`, `gx-stack`, `gx-tool-version`,
   `gx-arch`, `gx-run` (id del run che l'ha scritto). sccache e Gradle scrivono senza metadati nostri.
 - Una GET non cambia l'oggetto, quindi l'uso si registra a parte: a ogni hit `s3-cache` riscrive
-  `v1/index/<percorso>.json` con `{"last_used": "<ISO 8601 UTC>", "run": "<id>"}`. Per sccache e Gradle vale
+  `v1/index/deps/<stack>/<tipo>/<os-arch>/<archivio>.json` con `{"last_used": "<ISO 8601 UTC>", "run": "<id>"}`. Per sccache e Gradle vale
   la data di scrittura dell'oggetto.
 
 ## Quote e pulizia

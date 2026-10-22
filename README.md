@@ -83,6 +83,7 @@ Per una build Flutter, Expo, Tauri o Android nativa completa non servono queste 
 | Componente | Tipo | Cosa fa |
 | :--- | :--- | :--- |
 | [`setup`](setup/action.yml) | azione | worker, cache condivise della macchina, `clear_cache` di sola esecuzione |
+| [`s3-cache`](s3-cache/action.yml) | azione | archivi di dipendenze (pnpm, pub, Gradle, cargo) sul bucket S3, per i runner senza disco caldo |
 | [`x86-64`](x86-64/action.yml) | azione | lanciatore per binari x86-64 sul runner ARM64: Box64, con QEMU 10 di riserva |
 | [`notify`](notify/action.yml) | azione | inizio ed esito su Telegram, con gli artefatti allegati |
 | [`public-sync`](public-sync/action.yml) + [reusable](.github/workflows/public-sync.yml) | azione + reusable | specchio pubblico di un repo privato, con scanner anti-fuga |
