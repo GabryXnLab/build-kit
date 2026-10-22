@@ -169,6 +169,13 @@ runs:
         if [ "$CLEAR_CACHE" = "true" ]; then OPTS="$OPTS -Dorg.gradle.caching=false"; fi
         # Sui runner effimeri nessun gradle.properties della macchina accende la build cache.
         if [ -n "$GRADLE_REMOTE" ]; then OPTS="$OPTS -Dorg.gradle.caching=true"; fi
+        # Su Ubicloud nessun gradle.properties della macchina alza lo heap del daemon: restano i 2 GiB
+        # di Expo e la build Android di Ascend va in OutOfMemory (Metaspace) e si trascina per ore.
+        if [ "$PROFILE" = "ubicloud" ]; then
+          mkdir -p "${GRADLE_USER_HOME:-$HOME/.gradle}"
+          grep -qs '^org.gradle.jvmargs=' "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties" \
+            || echo 'org.gradle.jvmargs=-Xmx4g -XX:MaxMetaspaceSize=1g -XX:+UseG1GC' >> "${GRADLE_USER_HOME:-$HOME/.gradle}/gradle.properties"
+        fi
         {
           echo "GRADLE_OPTS=${GRADLE_OPTS:+$GRADLE_OPTS }$OPTS"
           echo "CARGO_BUILD_JOBS=$N"
