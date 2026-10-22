@@ -34,4 +34,5 @@ runs:
         PROFILE: ${{ inputs.profile }}
         GH_TOKEN: ${{ inputs.token }}
         JOB_STATUS: ${{ job.status }}
-      run: bash "$GITHUB_ACTION_PATH/summary.sh" || echo "::warning::build-kit/summary: riassunto non prodotto"
+      run: |
+        bash "$GITHUB_ACTION_PATH/summary.sh" || echo "::warning::build-kit/summary non ha prodotto il riassunto"
