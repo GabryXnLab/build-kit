@@ -48,7 +48,7 @@ rm -rf "$HOME/.pub-cache"
 out=$(ITEMS='pub-cache|~/.pub-cache|**/pubspec.lock|flutter-9.9' run restore); check "altra versione dello strumento: miss" '[[ $out == *"miss"* ]]'
 
 mkdir -p "$HOME/.pub-cache" && echo local > "$HOME/.pub-cache/l.txt"
-out=$(run restore); check "percorsi popolati: niente download" '[[ $out == *"già popolati"* && $(cut -f1,2 "$GX_S3_STATE_DIR/events.tsv" | tail -1) == *locale* ]]'
+out=$(run restore); check "percorsi popolati: niente download" '[[ $out == *"già popolati"* && $(cut -f3 "$GX_S3_STATE_DIR/events.tsv" | tail -1) == *locale* ]]'
 echo 'deps: v3' > "$GITHUB_WORKSPACE/pubspec.lock"; ( cd "$GITHUB_WORKSPACE" && git add . )
 out=$(run restore); out2=$(run save); check "percorsi popolati e chiave assente: il save li archivia" '[ "$(ls $D/flutter-3.35.0-*.tar.zst | wc -l)" = 3 ]'
 out=$(run restore); out2=$(run save); check "percorsi popolati e hit esatto: nessun nuovo save" '[[ $out == *"(exact)"* && $out2 == *"hit esatto"* ]]'
