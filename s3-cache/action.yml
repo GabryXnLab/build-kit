@@ -1,0 +1,50 @@
+name: Cache delle dipendenze su S3
+description: >-
+  Salva e ripristina archivi tar+zstd di dipendenze (pub-cache, pnpm-store, gradle-modules,
+  gradle-wrapper, cargo-registry) sul bucket della cache remota, secondo docs/cache-contract.md.
+  Due chiamate: mode restore a inizio job, mode save a fine job (if success()). Inerte, con un
+  avviso, senza credenziali; mai su repo pubblici e fork; non fallisce mai la build.
+
+inputs:
+  mode:
+    description: 'restore (inizio job) | save (fine job, con gli stessi input del restore).'
+    required: true
+  stack:
+    description: 'flutter | android | expo | desktop: secondo livello della chiave (v1/deps/<stack>/...).'
+    required: true
+  items:
+    description: >-
+      Una riga per archivio: tipo|percorsi|file di hash|versione strumento. tipo = pnpm-store |
+      pub-cache | gradle-modules | gradle-wrapper | cargo-registry; percorsi sotto $HOME separati da
+      spazio (~/.pub-cache); file di hash = glob git separati da virgola (**/pubspec.lock); la
+      versione dello strumento fa parte della chiave e del ripiego.
+    required: true
+  cache_env:
+    description: >-
+      Contenuto del file .env con le credenziali del bucket (secret BUILD_CACHE_S3 passato per nome).
+      Vuoto = il file della macchina (~/secrets o /var/lib/ci/secrets/oci-build-cache.env).
+    required: false
+    default: ''
+  clear_cache:
+    description: 'true = niente ripristino (il salvataggio riscrive).'
+    required: false
+    default: 'false'
+  max_mb:
+    description: 'Oltre questa dimensione l archivio compresso non si salva.'
+    required: false
+    default: '1500'
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        MODE: ${{ inputs.mode }}
+        STACK: ${{ inputs.stack }}
+        ITEMS: ${{ inputs.items }}
+        CACHE_ENV: ${{ inputs.cache_env }}
+        CLEAR_CACHE: ${{ inputs.clear_cache }}
+        MAX_MB: ${{ inputs.max_mb }}
+        REPO_PRIVATE: ${{ github.event.repository.private }}
+        IS_FORK: ${{ github.event.pull_request.head.repo.fork }}
+      run: bash "$GITHUB_ACTION_PATH/s3cache.sh"

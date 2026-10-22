@@ -1,0 +1,40 @@
+#!/usr/bin/env bash
+# Finto s5cmd per i test offline: gli oggetti sono file sotto $FAKE_S3, i metadati in <file>.meta.
+set -euo pipefail
+args=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --endpoint-url|--retry-count) shift 2 ;;
+    *) args+=("$1"); shift ;;
+  esac
+done
+cmd=${args[0]}; set -- "${args[@]:1}"
+loc() { local p=${1#s3://}; printf '%s/%s' "$FAKE_S3" "$p"; }
+case "$cmd" in
+  ls)
+    p=$(loc "$1")
+    case "$p" in
+      *'*'*)
+        d=$(dirname "$p"); g=$(basename "$p")
+        found=1
+        for f in "$d"/$g; do
+          [ -f "$f" ] || continue
+          case "$f" in *.meta) continue ;; esac
+          found=0
+          printf '%s %12d %s\n' "$(date -u -r "$f" '+%Y/%m/%d %H:%M:%S')" "$(stat -c %s "$f")" "$(basename "$f")"
+        done
+        exit $found ;;
+      *) [ -f "$p" ] || { echo "ERROR no object found" >&2; exit 1; }
+         printf '%s %12d %s\n' "$(date -u -r "$p" '+%Y/%m/%d %H:%M:%S')" "$(stat -c %s "$p")" "$(basename "$p")" ;;
+    esac ;;
+  cp)
+    meta=()
+    while [ "${1:-}" = "--metadata" ]; do meta+=("$2"); shift 2; done
+    src=$1; dst=$2
+    case "$src" in
+      s3://*) cp "$(loc "$src")" "$dst" ;;
+      *) mkdir -p "$(dirname "$(loc "$dst")")"; cp "$src" "$(loc "$dst")"
+         printf '%s\n' "${meta[@]}" > "$(loc "$dst").meta" ;;
+    esac ;;
+  *) echo "fake s5cmd: comando $cmd" >&2; exit 2 ;;
+esac
