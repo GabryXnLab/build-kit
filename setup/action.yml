@@ -232,16 +232,42 @@ runs:
           fi
         fi
 
-        # nexus-core resta sul disco: è la macchina con la cache calda, e una sola fonte per sccache
-        # (S3 al posto del disco) le costerebbe un viaggio in rete per ogni crate. Sugli effimeri
+        # Sul self-hosted (nexus-core, ohos) il disco resta il primo livello e S3 il secondo: un hit locale
+        # non va in rete, un miss locale prova S3 e un oggetto nuovo finisce in entrambi. Sugli effimeri
         # sccache c'è solo per la cache remota; desktop-ci gira anche su macOS e Windows, dove il
         # binario musl non va.
         SCCACHE_REMOTE=false
-        if [ "$REMOTE" = "true" ] && [ "$RUST" = "true" ] && [ "$PROFILE" != "nexus" ] && [ "$(uname -s)" = "Linux" ]; then
+        if [ "$REMOTE" = "true" ] && [ "$RUST" = "true" ] && [ "$(uname -s)" = "Linux" ]; then
           SCCACHE_REMOTE=true
           case "$(uname -m)" in aarch64|arm64) RARCH=arm64 ;; *) RARCH=x64 ;; esac
-          if [ "$RUNNER_KIND" = "github" ]; then
+          if [ "$RUNNER_KIND" != "github" ]; then
+            {
+              echo "SCCACHE_MULTILEVEL_CHAIN=disk,s3"
+              # Un errore di S3 (rete, quota) non deve far fallire la compilazione: conta solo il disco.
+              echo "SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=l0"
+            } >> "$GITHUB_ENV"
+          else
             install_sccache
+            # La chiave di sccache per Rust contiene cwd, argomenti e variabili CARGO_* con i percorsi
+            # assoluti (sorgenti in CARGO_HOME, OUT_DIR nella target); SCCACHE_BASEDIRS (0.18) vale solo
+            # per C/C++. Per un hit con nexus-core l effimero usa gli stessi percorsi: la sua home montata
+            # anche in $CANON, CARGO_HOME e target come su nexus. getcwd risolve i symlink, il bind mount no.
+            CANON=/home/ubuntu
+            if [ "$HOME" != "$CANON" ] && { [ ! -e "$CANON" ] || [ -z "$(ls -A "$CANON" 2>/dev/null)" ]; } \
+               && sudo -n mkdir -p "$CANON" 2>/dev/null && sudo -n mount --bind "$HOME" "$CANON"; then
+              echo "Percorsi di nexus-core: $HOME montata in $CANON"
+            fi
+            if [ "$HOME" = "$CANON" ] || mountpoint -q "$CANON"; then
+              KEY="${CARGO_KEY:-${GITHUB_REPOSITORY##*/}}"
+              CARGO_DIR="$CANON/ci/cache/cargo-target/$KEY"
+              mkdir -p "$CARGO_DIR"
+              {
+                echo "CARGO_HOME=$CANON/.cargo"
+                echo "CARGO_TARGET_DIR=$CARGO_DIR"
+              } >> "$GITHUB_ENV"
+            else
+              echo "::warning::$CANON non disponibile: sccache su S3 senza hit con nexus-core"
+            fi
             {
               echo "RUSTC_WRAPPER=$TOOLS/sccache"
               # Il server esce dopo 600 s senza richieste: un passo lungo senza rustc (link con LTO fat, task Gradle
@@ -256,7 +282,7 @@ runs:
             echo "SCCACHE_ENDPOINT=$C_S3_ENDPOINT"
             echo "SCCACHE_REGION=$C_AWS_REGION"
             echo "SCCACHE_S3_USE_SSL=true"
-            echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$PROFILE-$RARCH/"
+            echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$RARCH/"
             echo "AWS_ACCESS_KEY_ID=$C_AWS_ACCESS_KEY_ID"
             echo "AWS_SECRET_ACCESS_KEY=$C_AWS_SECRET_ACCESS_KEY"
             echo "AWS_REGION=$C_AWS_REGION"
@@ -280,7 +306,7 @@ runs:
                 echo "SCCACHE_ENDPOINT=$C_S3_ENDPOINT"
                 echo "SCCACHE_REGION=$C_AWS_REGION"
                 echo "SCCACHE_S3_USE_SSL=true"
-                echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$PROFILE-$RARCH/"
+                echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$RARCH/"
                 echo "AWS_ACCESS_KEY_ID=$C_AWS_ACCESS_KEY_ID"
                 echo "AWS_SECRET_ACCESS_KEY=$C_AWS_SECRET_ACCESS_KEY"
                 echo "AWS_REGION=$C_AWS_REGION"

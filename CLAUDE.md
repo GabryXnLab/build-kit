@@ -77,11 +77,15 @@ input da ricostruire: serve il rilancio completo (non `rerun-failed-jobs`), altr
 si mascherano, e senza si salta. Gradle: `HttpBuildCache` verso un URL pre-autenticato (PAR OCI di tipo prefisso,
 lettura e scrittura su `v1/gradle/build-cache/`, una chiave mancante dà 404 = miss), attivo su ogni profilo e
 in push anche da nexus, che scalda gli altri; l'init script è inerte senza `GX_REMOTE_CACHE`, quindi le build
-a mano non cambiano, e `clear_cache` lo spegne. sccache su S3 solo fuori da nexus (lì resta il disco, la cache
-calda): S3 sostituisce il disco, non si somma. sccache 0.18 ha `SCCACHE_MULTILEVEL_CHAIN=disk,s3` (con
-`SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY`), non ancora usato. La chiave di sccache dipende dai percorsi passati
-a rustc (`-L` della cartella target): un hit fra macchine chiede gli stessi percorsi, quindi i prefissi sono
-per profilo e architettura.
+a mano non cambiano, e `clear_cache` lo spegne. sccache su S3 con un prefisso per architettura
+(`v1/rust/sccache/<arch>/`): sul self-hosted (nexus-core, ohos) `SCCACHE_MULTILEVEL_CHAIN=disk,s3`, disco davanti e S3
+dietro; sugli effimeri solo S3. La chiave di sccache per Rust contiene cwd, argomenti e variabili `CARGO_*` con i
+percorsi assoluti (sorgenti in `CARGO_HOME`, `OUT_DIR` nella target) e il digest delle librerie del rustc;
+`SCCACHE_BASEDIRS` di 0.18 vale solo per C/C++. Per questo un effimero Linux monta la sua home anche in `/home/ubuntu`
+(bind mount: `getcwd` risolve i symlink) e usa `CARGO_HOME` e target come nexus-core: i crate delle dipendenze danno
+hit fra nexus-core e Ubicloud arm64; quelli del workspace no (stanno nel checkout, percorso diverso per runner). ohos
+non fa hit con gli altri: il rustc di Nix (rust-overlay) è ripatchato da `autoPatchelfHook`, quindi il digest delle
+librerie differisce da quello di rustup.
 
 ## Archivi di dipendenze (`s3-cache`)
 
