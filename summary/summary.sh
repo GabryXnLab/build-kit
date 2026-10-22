@@ -36,8 +36,10 @@ fi
 
 # sccache: il server interrogato è quello del job (stesse variabili d'ambiente di cargo).
 SCC=n/d; SCC_RAW=""
-if [ -n "${RUSTC_WRAPPER:-}" ] && [ -x "${RUSTC_WRAPPER}" ]; then
-  SCC_RAW=$("$RUSTC_WRAPPER" --show-stats 2>&1 || true)
+SCC_BIN=${RUSTC_WRAPPER:-}
+case "${CMAKE_CXX_COMPILER_LAUNCHER:-}" in *sccache) SCC_BIN=${SCC_BIN:-$CMAKE_CXX_COMPILER_LAUNCHER} ;; esac
+if [ -n "$SCC_BIN" ] && [ -x "$SCC_BIN" ]; then
+  SCC_RAW=$("$SCC_BIN" --show-stats 2>&1 || true)
   req=$(printf '%s\n' "$SCC_RAW" | awk '/^Compile requests[[:space:]]+[0-9]+$/ {print $NF; exit}')
   hit=$(printf '%s\n' "$SCC_RAW" | awk '/^Cache hits[[:space:]]+[0-9]+$/ {print $NF; exit}')
   miss=$(printf '%s\n' "$SCC_RAW" | awk '/^Cache misses[[:space:]]+[0-9]+$/ {print $NF; exit}')

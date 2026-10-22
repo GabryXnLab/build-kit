@@ -17,7 +17,7 @@ pulisce (il futuro gestore Rust). Un cambio incompatibile alza la radice (`v2/`)
 
 | Prefisso | Chi scrive | Contenuto |
 | :--- | :--- | :--- |
-| `v1/rust/sccache/<profilo>-<arch>/` | sccache (`SCCACHE_S3_KEY_PREFIX`) | oggetti di sccache, formato suo |
+| `v1/rust/sccache/<profilo>-<arch>/` | sccache (`SCCACHE_S3_KEY_PREFIX`), anche il C/C++ di CMake (`setup` con `cmake_cache`) | oggetti di sccache, formato suo |
 | `v1/gradle/build-cache/<chiave>` | Gradle `HttpBuildCache` | voci della build cache, chiave = hash di Gradle |
 | `v1/deps/<stack>/<tipo>/<os-arch>/<chiave>.tar.zst` | `s3-cache` (fase 4b) | archivi di dipendenze |
 | `v1/index/deps/<stack>/<tipo>/<os-arch>/<chiave>.tar.zst.json` | `s3-cache` | `last_used` dell'archivio (percorso dell'archivio con `v1/index/` al posto di `v1/` e `.json` in coda) |

@@ -37,6 +37,12 @@ inputs:
       su ogni runner, sccache su S3 fuori da nexus-core (lì resta sul disco). Senza credenziali si salta.
     required: false
     default: 'false'
+  cmake_cache:
+    description: >-
+      true = compilatore C/C++ dei progetti CMake (NDK) dietro una cache: ccache sul self-hosted,
+      sccache su S3 sugli effimeri Linux (con remote_cache). La variabile NDK_CCACHE vale solo per ndk-build.
+    required: false
+    default: 'false'
   cache_env:
     description: >-
       Contenuto del file .env con le credenziali del bucket, per i runner effimeri (un secret passato
@@ -64,6 +70,7 @@ runs:
         RUST: ${{ inputs.rust }}
         CARGO_KEY: ${{ inputs.cargo_target_key }}
         REMOTE_CACHE: ${{ inputs.remote_cache }}
+        CMAKE_CACHE: ${{ inputs.cmake_cache }}
         CACHE_ENV: ${{ inputs.cache_env }}
         SCCACHE_VERSION: '0.18.0'
         SCCACHE_SHA256_AARCH64: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
@@ -254,6 +261,40 @@ runs:
             echo "AWS_SECRET_ACCESS_KEY=$C_AWS_SECRET_ACCESS_KEY"
             echo "AWS_REGION=$C_AWS_REGION"
           } >> "$GITHUB_ENV"
+        fi
+        # CMake (anche quello lanciato da AGP) legge CMAKE_<LANG>_COMPILER_LAUNCHER dall'ambiente; il
+        # toolchain dell'NDK guarda solo la variabile CMake NDK_CCACHE, non quella d'ambiente: senza
+        # questo ccache non vedeva nessuna compilazione delle librerie native di Expo/React Native.
+        CMAKE_LAUNCHER=""
+        if [ "$CMAKE_CACHE" = "true" ]; then
+          if [ "$RUNNER_KIND" != "github" ]; then
+            CMAKE_LAUNCHER=$(command -v ccache || true)
+          elif [ "$REMOTE" = "true" ] && [ "$(uname -s)" = "Linux" ]; then
+            install_sccache
+            CMAKE_LAUNCHER="$TOOLS/sccache"
+            if [ "$SCCACHE_REMOTE" != "true" ]; then
+              case "$(uname -m)" in aarch64|arm64) RARCH=arm64 ;; *) RARCH=x64 ;; esac
+              {
+                echo "SCCACHE_IDLE_TIMEOUT=7200"
+                echo "SCCACHE_BUCKET=$C_S3_BUCKET"
+                echo "SCCACHE_ENDPOINT=$C_S3_ENDPOINT"
+                echo "SCCACHE_REGION=$C_AWS_REGION"
+                echo "SCCACHE_S3_USE_SSL=true"
+                echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$PROFILE-$RARCH/"
+                echo "AWS_ACCESS_KEY_ID=$C_AWS_ACCESS_KEY_ID"
+                echo "AWS_SECRET_ACCESS_KEY=$C_AWS_SECRET_ACCESS_KEY"
+                echo "AWS_REGION=$C_AWS_REGION"
+              } >> "$GITHUB_ENV"
+            fi
+            if [ "$CLEAR_CACHE" = "true" ]; then echo "SCCACHE_RECACHE=1" >> "$GITHUB_ENV"; fi
+          fi
+          if [ -n "$CMAKE_LAUNCHER" ]; then
+            {
+              echo "CMAKE_C_COMPILER_LAUNCHER=$CMAKE_LAUNCHER"
+              echo "CMAKE_CXX_COMPILER_LAUNCHER=$CMAKE_LAUNCHER"
+            } >> "$GITHUB_ENV"
+          fi
+          echo "Cache del compilatore C/C++ di CMake: ${CMAKE_LAUNCHER:-nessuna}"
         fi
         # Conteggio dei task Gradle per build-kit/summary; il file è per job, l'init script inerte senza la variabile.
         STATS_INIT="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
