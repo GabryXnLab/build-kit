@@ -64,6 +64,19 @@ def queued_per_label(get, org, repos):
     return counts
 
 
+def ohos_stuck_before(get, repo, run_id, attempt, label=LABEL["ohos"]):
+    """Vero se il tentativo precedente del run ha lasciato in coda (annullato senza mai partire)
+    un job con l'etichetta di ohos: la sentinella di ci-bot annulla e rilancia, e il rilancio non
+    deve riscegliere una macchina che GitHub vede online ma non prende job."""
+    if attempt < 2:
+        return False
+    jobs = get(f"/repos/{repo}/actions/runs/{run_id}/attempts/{attempt - 1}/jobs?per_page=100")
+    return any(
+        j.get("conclusion") == "cancelled" and j.get("runner_id") is None and label in j.get("labels", [])
+        for j in jobs.get("jobs", [])
+    )
+
+
 def eligible_levels(allow, target_arch):
     levels = []
     for level in ORDER:
@@ -171,6 +184,14 @@ def main():
     if env("PICK_JITTER", "true") == "true":
         time.sleep(random.uniform(0, 15))
     get = (lambda p: http_get(p, token)) if token else None
+    if get and "ohos" in allow:
+        try:
+            if ohos_stuck_before(get, env("GITHUB_REPOSITORY", ""), env("GITHUB_RUN_ID", ""),
+                                 int(env("GITHUB_RUN_ATTEMPT", "1"))):
+                allow = allow - {"ohos"}
+                print("pick-runner: tentativo precedente rimasto in coda su ohos: ohos escluso")
+        except (urllib.error.URLError, OSError, ValueError):
+            pass
     listed = read_repo_list(os.path.join(os.path.dirname(os.path.abspath(__file__)), "ubicloud-repos.txt"))
     res, table = pick(get, env("PICK_ORG", "GabryXnLab"), arch, env("PICK_UBICLOUD_SIZE", "8"), repos, allow,
                       target_arch, env("PICK_REPO", ""), listed)

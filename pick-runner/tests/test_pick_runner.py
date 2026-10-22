@@ -39,6 +39,39 @@ def run(name, allow=ALL, arch="x64", target="any", repos=("kagami", "ascend"), r
     return res
 
 
+def attempts_api(jobs):
+    def get(path):
+        assert "/attempts/1/jobs" in path, path
+        return {"jobs": jobs}
+
+    return get
+
+
+class OhosStuck(unittest.TestCase):
+    cancelled = {"conclusion": "cancelled", "runner_id": None, "labels": ["self-hosted", "ohos"]}
+
+    def stuck(self, jobs, attempt=2, label="ohos"):
+        return pr.ohos_stuck_before(attempts_api(jobs), "GabryXnLab/ascend", "1", attempt, label)
+
+    def test_primo_tentativo_mai_escluso(self):
+        self.assertFalse(pr.ohos_stuck_before(lambda p: self.fail(p), "o/r", "1", 1))
+
+    def test_annullato_in_coda_su_ohos(self):
+        self.assertTrue(self.stuck([self.cancelled]))
+
+    def test_annullato_dopo_essere_partito(self):
+        self.assertFalse(self.stuck([{**self.cancelled, "runner_id": 9}]))
+
+    def test_annullato_su_altra_etichetta(self):
+        self.assertFalse(self.stuck([{**self.cancelled, "labels": ["self-hosted", "nexus-core"]}]))
+
+    def test_fallito_non_annullato(self):
+        self.assertFalse(self.stuck([{**self.cancelled, "conclusion": "failure"}]))
+
+    def test_etichetta_configurabile(self):
+        self.assertTrue(self.stuck([{**self.cancelled, "labels": ["x"]}], label="x"))
+
+
 class PickRunner(unittest.TestCase):
     def test_nexus_libero(self):
         r = run("nexus_libero")
