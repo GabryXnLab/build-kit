@@ -75,6 +75,17 @@ call() { # $1=metodo, poi i campi -F
   return 1
 }
 
+# Una riga nel log per ogni messaggio d'esito: ci-bot (storico dei tempi) la rilegge dal log del job
+# per aggiungere durata e Δ al messaggio. Un bot non riceve i propri messaggi, e l'API non dà gli input.
+mark() { # $1=text|caption, $2=testo del messaggio
+  command -v jq >/dev/null || return 0
+  local id
+  id=$(grep -o '"message_id":[0-9]*' "$RESP" 2>/dev/null | head -1 | cut -d: -f2)
+  [ -n "$id" ] || return 0
+  echo "ci-bot-msg: $(jq -nc --arg id "$id" --arg kind "$1" --arg text "$2" --arg inputs "$RUN_INPUTS" \
+    '{message_id: ($id | tonumber), kind: $kind, text: $text, inputs: $inputs}')"
+}
+
 # callback_data ha un limite di 64 byte: l'id numerico del repo invece di owner/nome.
 R="${GITHUB_REPOSITORY_ID}:${GITHUB_RUN_ID}"
 
@@ -110,6 +121,7 @@ if [ "$STATUS" != "success" ]; then
   esac
   KEYBOARD+="[${LAST}]]}"
   send_text "$TEXT" "$KEYBOARD"
+  mark text "$TEXT"
   # Un bot non riceve i propri messaggi: dove gira ci-bot (runner self-hosted) gli si lascia
   # l'id del messaggio, perché ci aggiunga la causa probabile. Altrove la cartella non c'è.
   INBOX="${HOME:-}/.local/state/ci-bot/inbox"
@@ -138,10 +150,13 @@ TEXT="${TEXT}"$'\n'"<a href=\"${RUN_URL}\">Run</a>"
 if [ "${#FOUND[@]}" -eq 0 ]; then
   [ -n "$FILES" ] && TEXT="${TEXT}"$'\n'"⚠️ Nessun artefatto trovato."
   send_text "$TEXT" ""
+  mark text "$TEXT"
   exit 0
 fi
-[ -n "$MESSAGE_ID" ] && call editMessageText -F "message_id=${MESSAGE_ID}" \
-  --form-string "text=${TEXT}"$'\n'"📦 Artefatti qui sotto."
+if [ -n "$MESSAGE_ID" ] && call editMessageText -F "message_id=${MESSAGE_ID}" \
+  --form-string "text=${TEXT}"$'\n'"📦 Artefatti qui sotto."; then
+  mark text "${TEXT}"$'\n'"📦 Artefatti qui sotto."
+fi
 
 # Per quando il file finisce sepolto nel topic o supera il limite: ci-bot lo rimanda dal run.
 RESEND='{"inline_keyboard":[[{"text":"📦 Rimanda artefatti","callback_data":"ra:'"$R"'"}]]}'
@@ -152,7 +167,7 @@ for f in "${FOUND[@]}"; do
   echo "Artefatto: $f (${MB} MB)"
   if [ "$BYTES" -gt 0 ] && [ "$BYTES" -le "$MAX_BYTES" ]; then
     call sendDocument -F "document=@${f}" --form-string "caption=${CAPTION}" \
-      --form-string "reply_markup=${RESEND}"
+      --form-string "reply_markup=${RESEND}" && mark caption "$CAPTION"
   else
     call sendMessage --form-string "text=${CAPTION}"$'\n'"⚠️ Oltre il limite (${MAX_LABEL}): scaricalo dagli artifact del run." \
       --form-string "reply_markup=${RESEND}"
