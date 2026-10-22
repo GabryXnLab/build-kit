@@ -1,0 +1,102 @@
+name: Ambiente Nix del progetto
+description: >-
+  Carica nel job il devShell di un flake (`nix print-dev-env`), come `nix develop` ma per gli step
+  successivi: le variabili cambiate vanno in GITHUB_ENV, i PATH nuovi in GITHUB_PATH. L'ambiente si
+  valuta una volta per hash di flake.nix + flake.lock + rust-toolchain.toml e poi si riprende dalla
+  cartella della macchina. Serve dove la toolchain non si installa con rustup/apt (ohos, NixOS).
+
+inputs:
+  flake_dir:
+    description: 'Cartella del flake, relativa al workspace (dove stanno flake.nix e flake.lock).'
+    required: false
+    default: '.'
+  shell:
+    description: 'Nome del devShell (devShells.<system>.<shell>).'
+    required: false
+    default: 'default'
+
+outputs:
+  env_file:
+    description: 'Lo script di print-dev-env usato.'
+    value: ${{ steps.env.outputs.env_file }}
+
+runs:
+  using: composite
+  steps:
+    - id: env
+      shell: bash
+      env:
+        FLAKE_DIR: ${{ inputs.flake_dir }}
+        SHELL_NAME: ${{ inputs.shell }}
+      run: |
+        set -euo pipefail
+        cd "$GITHUB_WORKSPACE/$FLAKE_DIR"
+        if [ ! -f flake.nix ] || [ ! -f flake.lock ]; then
+          echo "::error::nix-env: in $FLAKE_DIR mancano flake.nix o flake.lock"; exit 1
+        fi
+        # Il PATH del runner NixOS contiene solo i suoi extraPackages: nix sta nel profilo di sistema.
+        NIX=$(command -v nix || true)
+        for c in /run/current-system/sw/bin/nix /nix/var/nix/profiles/default/bin/nix; do
+          if [ -z "$NIX" ] && [ -x "$c" ]; then NIX=$c; fi
+        done
+        if [ -z "$NIX" ]; then echo "::error::nix-env: nix non trovato sul runner"; exit 1; fi
+
+        SYSTEM=$(uname -m)-linux
+        HASH=$(cat flake.nix flake.lock rust-toolchain.toml 2>/dev/null | { cat; echo "$SHELL_NAME $SYSTEM"; } | sha256sum | cut -c1-16)
+        DIR="$HOME/.cache/gx-nix-env"
+        ENV_FILE="$DIR/env-$HASH.sh"
+        mkdir -p "$DIR"
+        if [ -s "$ENV_FILE" ]; then
+          echo "Ambiente Nix dalla cache: $ENV_FILE"
+        else
+          # Il substituter attic in /etc/nix/nix.conf di ohos è irraggiungibile e ogni nix aspetterebbe i
+          # retry: bastano i due pubblici (come scripts/agent/remoto.sh di Riftgate).
+          export NIX_CONFIG="substituters = https://cache.nixos.org/ https://nix-community.cachix.org"
+          START=$(date +%s)
+          # --profile tiene l'ambiente come radice del GC: un nix-collect-garbage non lo cancella.
+          if ! "$NIX" print-dev-env --profile "$DIR/profile-$HASH" "path:$PWD#$SHELL_NAME" > "$ENV_FILE.tmp" 2> "$DIR/env-$HASH.log"; then
+            tail -n 40 "$DIR/env-$HASH.log"
+            rm -f "$ENV_FILE.tmp"
+            echo "::error::nix-env: nix print-dev-env fallito (log sopra)"; exit 1
+          fi
+          mv "$ENV_FILE.tmp" "$ENV_FILE"
+          echo "Ambiente Nix valutato in $(( $(date +%s) - START )) s: $ENV_FILE"
+          # Restano solo le ultime tre versioni (gli hash vecchi sono flake.lock superati).
+          ls -t "$DIR"/env-*.sh | tail -n +4 | while read -r old; do
+            h=${old##*/env-}; h=${h%.sh}
+            rm -f "$old" "$DIR/env-$h.log" "$DIR/profile-$h" "$DIR"/profile-"$h"-*-link
+          done
+        fi
+        echo "env_file=$ENV_FILE" >> "$GITHUB_OUTPUT"
+
+        # Le variabili che il devShell cambia, prese per differenza dell'ambiente prima e dopo il source.
+        # Escluse quelle della sandbox di stdenv che romperebbero il job: temporanee, certificati
+        # finti (/no-cert-file.crt), la data fissa del 1980, la shell e le variabili di nix stesso.
+        python3 - "$ENV_FILE" <<'PY'
+        import os, subprocess, sys, uuid
+        env_file = sys.argv[1]
+        def dump(cmd):
+            out = subprocess.run(["bash", "-c", cmd + "; env -0"], capture_output=True, check=True).stdout
+            return dict(e.split("=", 1) for e in out.decode().split("\0") if "=" in e)
+        before = dump("true")
+        after = dump(f"source '{env_file}' >/dev/null 2>&1")
+        skip = {"HOME", "PWD", "OLDPWD", "SHLVL", "_", "SHELL", "CONFIG_SHELL", "TMP", "TMPDIR", "TEMP",
+                "TEMPDIR", "NIX_BUILD_TOP", "SSL_CERT_FILE", "NIX_SSL_CERT_FILE", "SOURCE_DATE_EPOCH",
+                "NIX_CONFIG", "TERM", "USER", "LOGNAME", "PATH", "XDG_DATA_DIRS", "builder", "out",
+                "outputs", "shellHook", "stdenv", "phases", "dontAddDisableDepTrack"}
+        env_lines, n = [], 0
+        for k, v in after.items():
+            if k in skip or k.startswith(("GITHUB_", "RUNNER_", "ACTIONS_")) or before.get(k) == v:
+                continue
+            d = "EOF_" + uuid.uuid4().hex
+            env_lines.append(f"{k}<<{d}\n{v}\n{d}\n")
+            n += 1
+        old_path = before.get("PATH", "").split(":")
+        new_path = [p for p in after.get("PATH", "").split(":") if p and p not in old_path]
+        with open(os.environ["GITHUB_ENV"], "a") as f:
+            f.writelines(env_lines)
+        # GITHUB_PATH antepone ogni riga a quelle già scritte: in ordine inverso, così resta l'ordine del devShell.
+        with open(os.environ["GITHUB_PATH"], "a") as f:
+            f.writelines(p + "\n" for p in reversed(new_path))
+        print(f"nix-env: {n} variabili e {len(new_path)} cartelle in PATH dal devShell")
+        PY
