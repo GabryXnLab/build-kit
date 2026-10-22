@@ -347,7 +347,7 @@ Il reusable `public-sync` chiama a sua volta `build-kit/public-sync@main` e `bui
   | pub | `~/.pub-cache` | progetti Flutter |
   | pnpm | `~/.local/share/pnpm/store` | progetti Node |
   | ccache | `~/.cache/ccache` (10 GB) | NDK di tutti i progetti |
-  | sccache | `~/.cache/sccache` (10 GB) | Rust di tutti i progetti |
+  | sccache | `~/.cache/sccache` (3 GB) | Rust di tutti i progetti |
   | target di cargo | `~/ci/cache/cargo-target/<repo>` | workflow dello stesso repo |
   | Box64, sccache, lanciatori | `~/ci/tools` | — |
 

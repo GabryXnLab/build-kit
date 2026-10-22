@@ -1,0 +1,12 @@
+// Installato da build-kit/setup in $GRADLE_USER_HOME/init.d/ sui runner con cache locali (self-hosted, ohos).
+// Il disco di nexus-core è condiviso con lo sviluppo: la pulizia automatica di Gradle (una volta ogni 24 h,
+// a fine build) tiene meno a lungo ciò che si rigenera o si riscarica (build cache, trasformazioni, dipendenze).
+gradle.beforeSettings { settings ->
+    settings.caches {
+        buildCache.setRemoveUnusedEntriesAfterDays(3)
+        createdResources.setRemoveUnusedEntriesAfterDays(3)
+        downloadedResources.setRemoveUnusedEntriesAfterDays(14)
+        releasedWrappers.setRemoveUnusedEntriesAfterDays(14)
+        snapshotWrappers.setRemoveUnusedEntriesAfterDays(7)
+    }
+}
