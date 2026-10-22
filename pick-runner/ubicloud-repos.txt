@@ -1,0 +1,5 @@
+# Repo autorizzati a usare i runner Ubicloud (a pagamento): uno per riga, commenti con #.
+# Gli altri repo restano su nexus-core e ohos.
+kagami-private
+Riftgate
+ascend

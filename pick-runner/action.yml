@@ -1,0 +1,77 @@
+name: Scelta del runner
+description: >-
+  Sceglie dove far girare una build in ordine nexus-core, ohos, runner effimero Ubicloud:
+  il primo livello con capacità libera (runner online e non occupati meno i job già in coda
+  con la sua etichetta). Senza token o con l'API in errore ripiega su nexus-core, come prima.
+
+inputs:
+  token:
+    description: 'PAT con «Self-hosted runners: Read» e «Actions: Read» sui repo di build. Vuoto = ripiego.'
+    required: false
+    default: ''
+  org:
+    description: 'Organizzazione i cui runner si interrogano.'
+    required: false
+    default: 'GabryXnLab'
+  arch:
+    description: 'x64 | arm64: architettura del runner Ubicloud (arm64 aggiunge -arm all''etichetta).'
+    required: false
+    default: 'x64'
+  target_arch:
+    description: >-
+      any | x64 | arm64. Per le build che producono un binario dell''architettura dell''host
+      (desktop): esclude i livelli di architettura diversa (nexus è arm64, ohos x64) e vince su
+      `arch`. any = la build gira ovunque (Android, EAS).
+    required: false
+    default: 'any'
+  ubicloud_size:
+    description: 'Numero di vCPU di ubicloud-standard-<N>.'
+    required: false
+    default: '8'
+  repos:
+    description: 'Repo di build (nome o owner/nome, separati da virgola o a capo) in cui contare i job in coda.'
+    required: false
+    default: ''
+  allow:
+    description: 'Livelli ammessi, in virgola: nexus,ohos,ubicloud. «nexus» da solo per firme presenti solo su nexus-core.'
+    required: false
+    default: 'nexus,ohos,ubicloud'
+  repo:
+    description: 'Repo che chiede il runner: fuori da ubicloud-repos.txt il livello Ubicloud è escluso. Vuoto = nessun filtro.'
+    required: false
+    default: ${{ github.repository }}
+  jitter:
+    description: 'false = niente attesa casuale 0-15 s (che spezza le scelte simultanee di build lanciate insieme).'
+    required: false
+    default: 'true'
+
+outputs:
+  runs_on:
+    description: 'JSON array per runs-on (fromJSON).'
+    value: ${{ steps.pick.outputs.runs_on }}
+  profile:
+    description: 'nexus | ohos | ephemeral.'
+    value: ${{ steps.pick.outputs.profile }}
+  arch:
+    description: 'x64 | arm64: architettura del runner scelto.'
+    value: ${{ steps.pick.outputs.arch }}
+  reason:
+    description: 'Motivo della scelta, una riga.'
+    value: ${{ steps.pick.outputs.reason }}
+
+runs:
+  using: composite
+  steps:
+    - id: pick
+      shell: bash
+      env:
+        PICK_TOKEN: ${{ inputs.token }}
+        PICK_ORG: ${{ inputs.org }}
+        PICK_ARCH: ${{ inputs.arch }}
+        PICK_TARGET_ARCH: ${{ inputs.target_arch }}
+        PICK_UBICLOUD_SIZE: ${{ inputs.ubicloud_size }}
+        PICK_REPOS: ${{ inputs.repos }}
+        PICK_ALLOW: ${{ inputs.allow }}
+        PICK_REPO: ${{ inputs.repo }}
+        PICK_JITTER: ${{ inputs.jitter }}
+      run: python3 "$GITHUB_ACTION_PATH/pick_runner.py"

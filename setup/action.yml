@@ -6,7 +6,9 @@ description: >-
 
 inputs:
   runner:
-    description: 'self-hosted (nexus-core) | github. Sul self-hosted accende le cache condivise della macchina.'
+    description: >-
+      self-hosted (nexus-core) | github | ohos | ubicloud. Su self-hosted e ohos accende le cache
+      condivise della macchina; ubicloud si comporta come github finché la cache remota non c'è.
     required: false
     default: 'self-hosted'
   max_workers:
@@ -29,6 +31,18 @@ inputs:
     description: 'Nome della cartella target di cargo sotto ~/ci/cache/cargo-target. Vuoto = nome del repo.'
     required: false
     default: ''
+  remote_cache:
+    description: >-
+      true = cache remota sul bucket S3 (docs/cache-contract.md): build cache di Gradle remota con push
+      su ogni runner, sccache su S3 fuori da nexus-core (lì resta sul disco). Senza credenziali si salta.
+    required: false
+    default: 'false'
+  cache_env:
+    description: >-
+      Contenuto del file .env con le credenziali del bucket, per i runner effimeri (un secret passato
+      per nome). Vuoto = il file della macchina (~/secrets o /var/lib/ci/secrets/oci-build-cache.env).
+    required: false
+    default: ''
 
 outputs:
   workers:
@@ -49,10 +63,20 @@ runs:
         CLEAR_CACHE: ${{ inputs.clear_cache }}
         RUST: ${{ inputs.rust }}
         CARGO_KEY: ${{ inputs.cargo_target_key }}
+        REMOTE_CACHE: ${{ inputs.remote_cache }}
+        CACHE_ENV: ${{ inputs.cache_env }}
         SCCACHE_VERSION: '0.18.0'
-        SCCACHE_SHA256: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
+        SCCACHE_SHA256_AARCH64: '2b3284d5da3b46a47dc4229e75bb7b88ac4aa99c8d754fb7d2f84997e5a4354a'
+        SCCACHE_SHA256_X86_64: '45f1447fbe231e3037bde351ef70677dd212216c8d62ae7ca409fecc4d6acc89'
       run: |
         set -euo pipefail
+        PROFILE=$RUNNER_KIND
+        if [ "$PROFILE" = "self-hosted" ]; then PROFILE=nexus; fi
+        # ubicloud è un runner effimero come quelli di GitHub (macchina nuova a ogni job, niente
+        # cartelle di ~/ci né cache condivise): tratta come github finché la cache remota (fase
+        # successiva) non gli dà una cache propria. ohos segue il ramo self-hosted, che usa solo
+        # $HOME e comandi presenti anche lì; i percorsi assoluti di nexus stanno nei reusable.
+        if [ "$RUNNER_KIND" = "ubicloud" ]; then RUNNER_KIND=github; fi
         # Gira anche sui runner Windows e macOS di desktop-ci, dove /proc non c'è.
         CPUS=$(nproc 2>/dev/null || getconf _NPROCESSORS_ONLN)
         LOAD=0
@@ -75,11 +99,76 @@ runs:
         fi
         echo "workers=$N" >> "$GITHUB_OUTPUT"
 
+        install_sccache() {
+          if [ -x "$TOOLS/sccache" ]; then return; fi
+          mkdir -p "$TOOLS"
+          local tmp arch sha name
+          tmp=$(mktemp -d)
+          case "$(uname -m)" in
+            aarch64|arm64) arch=aarch64; sha=$SCCACHE_SHA256_AARCH64 ;;
+            x86_64|amd64)  arch=x86_64;  sha=$SCCACHE_SHA256_X86_64 ;;
+            *) echo "::error::architettura non supportata per sccache: $(uname -m)"; exit 1 ;;
+          esac
+          name="sccache-v$SCCACHE_VERSION-$arch-unknown-linux-musl"
+          curl -fsSL -o "$tmp/s.tgz" "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/$name.tar.gz"
+          echo "$sha  $tmp/s.tgz" | sha256sum -c -
+          tar -xzf "$tmp/s.tgz" -C "$tmp"
+          install -m 755 "$tmp/$name/sccache" "$TOOLS/sccache.new"
+          mv "$TOOLS/sccache.new" "$TOOLS/sccache"
+          rm -rf "$tmp"
+        }
+        TOOLS="$HOME/ci/tools/bin"
+
+        # Le credenziali sono il testo di un .env che può venire da un secret: si leggono solo le
+        # chiavi note, senza source, così il testo non può eseguire niente. Variabili semplici e non
+        # array associativi perché setup gira anche col bash 3.2 di macOS.
+        REMOTE=false
+        GRADLE_REMOTE=""
+        if [ "$REMOTE_CACHE" = "true" ]; then
+          ENV_TEXT=$CACHE_ENV
+          if [ -z "$ENV_TEXT" ]; then
+            for f in "$HOME/secrets/oci-build-cache.env" /var/lib/ci/secrets/oci-build-cache.env; do
+              if [ -r "$f" ]; then ENV_TEXT=$(cat "$f"); break; fi
+            done
+          fi
+          C_AWS_ACCESS_KEY_ID="" C_AWS_SECRET_ACCESS_KEY="" C_AWS_REGION="" C_S3_ENDPOINT="" C_S3_BUCKET=""
+          C_GRADLE_REMOTE_CACHE_URL=""
+          while IFS= read -r line || [ -n "$line" ]; do
+            line=${line%$'\r'}
+            case "$line" in
+              AWS_ACCESS_KEY_ID=*|AWS_SECRET_ACCESS_KEY=*|AWS_REGION=*|S3_ENDPOINT=*|S3_BUCKET=*|GRADLE_REMOTE_CACHE_URL=*)
+                v=${line#*=}; v=${v#[\"\']}; v=${v%[\"\']}
+                printf -v "C_${line%%=*}" '%s' "$v" ;;
+            esac
+          done <<< "$ENV_TEXT"
+          for v in "$C_AWS_ACCESS_KEY_ID" "$C_AWS_SECRET_ACCESS_KEY" "$C_S3_ENDPOINT" "$C_GRADLE_REMOTE_CACHE_URL"; do
+            if [ -n "$v" ]; then echo "::add-mask::$v"; fi
+          done
+          if [ -n "$C_AWS_ACCESS_KEY_ID" ] && [ -n "$C_AWS_SECRET_ACCESS_KEY" ] && [ -n "$C_AWS_REGION" ] \
+             && [ -n "$C_S3_ENDPOINT" ] && [ -n "$C_S3_BUCKET" ]; then
+            REMOTE=true
+          else
+            echo "Cache remota: credenziali assenti, si salta"
+          fi
+          # Con clear_cache la build cache di Gradle è spenta del tutto, remota compresa.
+          if [ -n "$C_GRADLE_REMOTE_CACHE_URL" ] && [ "$CLEAR_CACHE" != "true" ]; then
+            GRADLE_REMOTE=$C_GRADLE_REMOTE_CACHE_URL
+            INIT_DIR="${GRADLE_USER_HOME:-$HOME/.gradle}/init.d"
+            mkdir -p "$INIT_DIR"
+            if ! cmp -s "$GITHUB_ACTION_PATH/gx-remote-cache.gradle" "$INIT_DIR/gx-remote-cache.gradle"; then
+              cp "$GITHUB_ACTION_PATH/gx-remote-cache.gradle" "$INIT_DIR/gx-remote-cache.gradle"
+            fi
+            echo "GX_REMOTE_CACHE=$GRADLE_REMOTE" >> "$GITHUB_ENV"
+          fi
+        fi
+
         # GRADLE_OPTS con -D prevale su ~/.gradle/gradle.properties della macchina (verificato:
         # «Using N worker leases»), e vale solo per questo run. Il parallelo è sempre acceso:
         # quanti task girano insieme lo decide comunque workers.max.
         OPTS="-Dorg.gradle.workers.max=$N -Dorg.gradle.parallel=true"
         if [ "$CLEAR_CACHE" = "true" ]; then OPTS="$OPTS -Dorg.gradle.caching=false"; fi
+        # Sui runner effimeri nessun gradle.properties della macchina accende la build cache.
+        if [ -n "$GRADLE_REMOTE" ]; then OPTS="$OPTS -Dorg.gradle.caching=true"; fi
         {
           echo "GRADLE_OPTS=${GRADLE_OPTS:+$GRADLE_OPTS }$OPTS"
           echo "CARGO_BUILD_JOBS=$N"
@@ -99,18 +188,7 @@ runs:
           if [ "$CLEAR_CACHE" = "true" ]; then echo "CCACHE_RECACHE=1" >> "$GITHUB_ENV"; fi
 
           if [ "$RUST" = "true" ]; then
-            TOOLS="$HOME/ci/tools/bin"
-            if [ ! -x "$TOOLS/sccache" ]; then
-              mkdir -p "$TOOLS"
-              TMP=$(mktemp -d)
-              NAME="sccache-v$SCCACHE_VERSION-aarch64-unknown-linux-musl"
-              curl -fsSL -o "$TMP/s.tgz" "https://github.com/mozilla/sccache/releases/download/v$SCCACHE_VERSION/$NAME.tar.gz"
-              echo "$SCCACHE_SHA256  $TMP/s.tgz" | sha256sum -c -
-              tar -xzf "$TMP/s.tgz" -C "$TMP"
-              install -m 755 "$TMP/$NAME/sccache" "$TOOLS/sccache.new"
-              mv "$TOOLS/sccache.new" "$TOOLS/sccache"
-              rm -rf "$TMP"
-            fi
+            install_sccache
             # La cartella target sta fuori dal checkout: un checkout che pulisce (o l altro
             # workflow dello stesso repo, che condivide la cartella di lavoro) non la tocca.
             # Per repo e non globale, perché due build dello stesso repo si mettono in fila
@@ -130,14 +208,42 @@ runs:
             if [ "$CLEAR_CACHE" = "true" ]; then echo "SCCACHE_RECACHE=1" >> "$GITHUB_ENV"; fi
           fi
         fi
+
+        # nexus-core resta sul disco: è la macchina con la cache calda, e una sola fonte per sccache
+        # (S3 al posto del disco) le costerebbe un viaggio in rete per ogni crate. Sugli effimeri
+        # sccache c'è solo per la cache remota; desktop-ci gira anche su macOS e Windows, dove il
+        # binario musl non va.
+        SCCACHE_REMOTE=false
+        if [ "$REMOTE" = "true" ] && [ "$RUST" = "true" ] && [ "$PROFILE" != "nexus" ] && [ "$(uname -s)" = "Linux" ]; then
+          SCCACHE_REMOTE=true
+          case "$(uname -m)" in aarch64|arm64) RARCH=arm64 ;; *) RARCH=x64 ;; esac
+          if [ "$RUNNER_KIND" = "github" ]; then
+            install_sccache
+            {
+              echo "RUSTC_WRAPPER=$TOOLS/sccache"
+              echo "CARGO_INCREMENTAL=0"
+            } >> "$GITHUB_ENV"
+            if [ "$CLEAR_CACHE" = "true" ]; then echo "SCCACHE_RECACHE=1" >> "$GITHUB_ENV"; fi
+          fi
+          {
+            echo "SCCACHE_BUCKET=$C_S3_BUCKET"
+            echo "SCCACHE_ENDPOINT=$C_S3_ENDPOINT"
+            echo "SCCACHE_REGION=$C_AWS_REGION"
+            echo "SCCACHE_S3_USE_SSL=true"
+            echo "SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$PROFILE-$RARCH/"
+            echo "AWS_ACCESS_KEY_ID=$C_AWS_ACCESS_KEY_ID"
+            echo "AWS_SECRET_ACCESS_KEY=$C_AWS_SECRET_ACCESS_KEY"
+            echo "AWS_REGION=$C_AWS_REGION"
+          } >> "$GITHUB_ENV"
+        fi
         echo "cargo_target_dir=$CARGO_DIR" >> "$GITHUB_OUTPUT"
 
         MEM_GB="?"
         if [ -r /proc/meminfo ]; then MEM_GB=$(awk '/MemAvailable/ {printf "%.1f", $2 / 1048576}' /proc/meminfo); fi
         {
           echo "### Taratura della build"
-          echo "| CPU | carico | worker | RAM libera | cache fidate |"
-          echo "| --- | --- | --- | --- | --- |"
-          echo "| $CPUS | $LOAD | $N ($MAX_WORKERS) | ${MEM_GB} GB | $([ "$CLEAR_CACHE" = "true" ] && echo no || echo sì) |"
+          echo "| CPU | carico | worker | RAM libera | cache fidate | Gradle remoto | sccache S3 |"
+          echo "| --- | --- | --- | --- | --- | --- | --- |"
+          echo "| $CPUS | $LOAD | $N ($MAX_WORKERS) | ${MEM_GB} GB | $([ "$CLEAR_CACHE" = "true" ] && echo no || echo sì) | $([ -n "$GRADLE_REMOTE" ] && echo sì || echo no) | $SCCACHE_REMOTE |"
         } >> "$GITHUB_STEP_SUMMARY"
-        echo "CPU $CPUS, carico $LOAD, worker $N (max_workers=$MAX_WORKERS), RAM libera ${MEM_GB} GB, clear_cache=$CLEAR_CACHE"
+        echo "CPU $CPUS, carico $LOAD, worker $N (max_workers=$MAX_WORKERS), RAM libera ${MEM_GB} GB, clear_cache=$CLEAR_CACHE, Gradle remoto=$([ -n "$GRADLE_REMOTE" ] && echo sì || echo no), sccache S3=$SCCACHE_REMOTE"

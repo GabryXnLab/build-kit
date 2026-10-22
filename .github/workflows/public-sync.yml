@@ -59,8 +59,8 @@ on:
       runs_on:
         description: >-
           Etichette del runner, come JSON. Il self-hosted di default non consuma minuti privati;
-          `ubuntu-latest` non garantirebbe un runner di GitHub, perché uno dei self-hosted ne ha
-          l'etichetta.
+          `ubuntu-latest` userebbe un runner di GitHub (minuti privati): dal 2026-10-21 nessun
+          self-hosted ne ha più l'etichetta.
         type: string
         default: '["self-hosted", "nexus-core"]'
       telegram_topic_id:

@@ -1,0 +1,93 @@
+{
+ "runners": {
+  "total_count": 2,
+  "runners": [
+   {
+    "name": "nexus-core",
+    "status": "online",
+    "busy": false,
+    "labels": [
+     {
+      "name": "self-hosted"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "ARM64"
+     },
+     {
+      "name": "nexus-core"
+     }
+    ]
+   },
+   {
+    "name": "ohos",
+    "status": "online",
+    "busy": false,
+    "labels": [
+     {
+      "name": "self-hosted"
+     },
+     {
+      "name": "Linux"
+     },
+     {
+      "name": "X64"
+     },
+     {
+      "name": "ohos"
+     }
+    ]
+   }
+  ]
+ },
+ "repos": {
+  "kagami": {
+   "queued": [
+    {
+     "id": 1,
+     "jobs": [
+      {
+       "status": "queued",
+       "labels": [
+        "self-hosted",
+        "nexus-core"
+       ]
+      }
+     ]
+    }
+   ]
+  },
+  "ascend": {
+   "queued": [
+    {
+     "id": 5,
+     "jobs": [
+      {
+       "status": "queued",
+       "labels": [
+        "self-hosted",
+        "ohos"
+       ]
+      }
+     ]
+    }
+   ],
+   "in_progress": [
+    {
+     "id": 1,
+     "jobs": [
+      {
+       "status": "queued",
+       "labels": [
+        "self-hosted",
+        "ohos"
+       ]
+      }
+     ]
+    }
+   ]
+  }
+ }
+}

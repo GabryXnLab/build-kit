@@ -23,7 +23,10 @@ niente da compilare.
 ## Struttura
 
 ```text
-setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione
+setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione,
+                     cache remota facoltativa (remote_cache); gx-remote-cache.gradle è il suo init script
+docs/cache-contract.md  prefissi, metadati e pulizia del bucket della cache remota
+pick-runner/         sceglie il runner (nexus-core, ohos, Ubicloud): action.yml, pick_runner.py, tests/ con fixture dell'API
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
 bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow run)
@@ -39,11 +42,36 @@ templates/publish/   da copiare in un progetto: wrapper del sync, exclude/patter
 
 ```bash
 python3 -c "import yaml,glob; [yaml.safe_load(open(f)) for f in glob.glob('*/action.yml')]"
+python3 -B -m unittest discover -s pick-runner/tests   # pick-runner con risposte finte dell'API
 bash -n bin/ci-batch && bin/ci-batch --list
 bash -n notify/notify.sh && shellcheck notify/notify.sh
 python3 -m py_compile public-sync/sync.py && python3 -B -m unittest public-sync/test_sync.py
 actionlint .github/workflows/*.yml   # i template: copiati in un repo finto, placeholder sostituiti
 ```
+
+## Scelta del runner (pick-runner, in sviluppo sul branch auto-runner)
+
+Ordine nexus-core, ohos, `ubicloud-standard-<N>`: il primo livello con capacità libera, cioè runner
+`online` e non `busy` con la sua etichetta meno i job `queued` che la chiedono nei `repos` dati. nexus è
+ARM64 e ohos X64: per le build che producono un binario dell'host (desktop) `target_arch` esclude il
+livello di architettura sbagliata; per Android/EAS resta `any`. `allow=nexus` serve alle firme che esistono
+solo su nexus-core. Senza token o con l'API in errore: avviso e nexus (o Ubicloud se nexus è escluso
+dall'architettura). **Allowlist Ubicloud**: `pick-runner/ubicloud-repos.txt` (un repo per riga, `#` commenti) elenca i repo
+che possono usare Ubicloud; per gli altri (`github.repository`, o input `repo`) il livello è escluso: solo nexus e ohos e,
+se pieni, coda su nexus. Un repo nuovo si aggiunge a quel file. `setup` accetta già `runner: ohos` (ramo self-hosted) e `ubicloud` (come github).
+
+## Cache remota (in sviluppo sul branch auto-runner)
+
+`setup` con `remote_cache: true` usa un bucket S3 (contratto in `docs/cache-contract.md`). Credenziali: input
+`cache_env` (testo del `.env`, da un secret per nome) o il file della macchina; si leggono solo le chiavi note,
+si mascherano, e senza si salta. Gradle: `HttpBuildCache` verso un URL pre-autenticato (PAR OCI di tipo prefisso,
+lettura e scrittura su `v1/gradle/build-cache/`, una chiave mancante dà 404 = miss), attivo su ogni profilo e
+in push anche da nexus, che scalda gli altri; l'init script è inerte senza `GX_REMOTE_CACHE`, quindi le build
+a mano non cambiano, e `clear_cache` lo spegne. sccache su S3 solo fuori da nexus (lì resta il disco, la cache
+calda): S3 sostituisce il disco, non si somma. sccache 0.18 ha `SCCACHE_MULTILEVEL_CHAIN=disk,s3` (con
+`SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY`), non ancora usato. La chiave di sccache dipende dai percorsi passati
+a rustc (`-L` della cartella target): un hit fra macchine chiede gli stessi percorsi, quindi i prefissi sono
+per profilo e architettura.
 
 ## Toolchain Nix comuni (flake)
 
@@ -171,9 +199,9 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   e un daemon vivo occuperebbe gigabyte a riposo su una macchina condivisa; l'avvio della
   JVM costa pochi secondi contro minuti di AOT.
 - **Due runner, non di più.** 4 CPU e 23 GB: due build Gradle insieme stanno in memoria
-  (4 GB di heap ciascuna più Kotlin), tre no. Il secondo runner non ha le etichette
-  `ubuntu-latest`/`ubuntu-24.04` che il primo ha (e che gli fanno prendere anche job
-  destinati a GitHub).
+  (4 GB di heap ciascuna più Kotlin), tre no. Nessuno dei due ha le etichette
+  `ubuntu-latest`/`ubuntu-24.04` (tolte il 2026-10-21 dal primo, che prendeva anche job
+  destinati a GitHub): quei job consumano minuti GitHub.
 
 ## Come si scrive una build (modello per progetti nuovi)
 
@@ -287,7 +315,7 @@ repo privato                                              specchio pubblico
   senza quei controlli.
 - **Il sync gira solo nei repo privati** (`if: github.event.repository.private`), sul
   self-hosted: un minuto di git e python che non consuma minuti privati. `ubuntu-latest`
-  non basterebbe a mandarlo su GitHub, perché uno dei self-hosted ne ha l'etichetta. Il job
+  lo manderebbe su GitHub (minuti privati); dal 2026-10-21 nessun self-hosted ne ha l'etichetta. Il job
   non installa niente e gira con `GIT_CONFIG_GLOBAL=/dev/null` e `GH_CONFIG_DIR` nel temp:
   la config globale della macchina passerebbe a git le credenziali di `gh`, che non devono
   entrare nel push. Il pubblico si tocca solo con `PUBLIC_SYNC_TOKEN`, mai col
