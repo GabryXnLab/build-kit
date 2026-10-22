@@ -199,9 +199,9 @@ parallelo e cache della macchina in comune. `runner: github` resta l'eccezione.
   e un daemon vivo occuperebbe gigabyte a riposo su una macchina condivisa; l'avvio della
   JVM costa pochi secondi contro minuti di AOT.
 - **Due runner, non di più.** 4 CPU e 23 GB: due build Gradle insieme stanno in memoria
-  (4 GB di heap ciascuna più Kotlin), tre no. Il secondo runner non ha le etichette
-  `ubuntu-latest`/`ubuntu-24.04` che il primo ha (e che gli fanno prendere anche job
-  destinati a GitHub).
+  (4 GB di heap ciascuna più Kotlin), tre no. Nessuno dei due ha le etichette
+  `ubuntu-latest`/`ubuntu-24.04` (tolte il 2026-10-21 dal primo, che prendeva anche job
+  destinati a GitHub): quei job consumano minuti GitHub.
 
 ## Come si scrive una build (modello per progetti nuovi)
 
@@ -315,7 +315,7 @@ repo privato                                              specchio pubblico
   senza quei controlli.
 - **Il sync gira solo nei repo privati** (`if: github.event.repository.private`), sul
   self-hosted: un minuto di git e python che non consuma minuti privati. `ubuntu-latest`
-  non basterebbe a mandarlo su GitHub, perché uno dei self-hosted ne ha l'etichetta. Il job
+  lo manderebbe su GitHub (minuti privati); dal 2026-10-21 nessun self-hosted ne ha l'etichetta. Il job
   non installa niente e gira con `GIT_CONFIG_GLOBAL=/dev/null` e `GH_CONFIG_DIR` nel temp:
   la config globale della macchina passerebbe a git le credenziali di `gh`, che non devono
   entrare nel push. Il pubblico si tocca solo con `PUBLIC_SYNC_TOKEN`, mai col
