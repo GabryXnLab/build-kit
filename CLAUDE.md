@@ -26,6 +26,7 @@ niente da compilare.
 setup/action.yml     worker (max_workers), cache condivise della macchina, clear_cache di sola esecuzione,
                      cache remota facoltativa (remote_cache); gx-remote-cache.gradle è il suo init script
 docs/cache-contract.md  prefissi, metadati e pulizia del bucket della cache remota
+nix-env/action.yml   carica nel job il devShell di un flake del progetto (profilo ohos): GITHUB_ENV/GITHUB_PATH, in cache per hash
 pick-runner/         sceglie il runner (nexus-core, ohos, Ubicloud): action.yml, pick_runner.py, tests/ con fixture dell'API
 x86-64/action.yml    lanciatore per binari x86-64 sul runner ARM64: Box64 (default) o QEMU 10
 notify/              esito su Telegram (action.yml + notify.sh): copia pubblica di ci-bot/notify
@@ -86,6 +87,9 @@ chaotic su ohos chiede glibc 2.43, header di dbus/gtk per i crate -sys), `androi
 SDK/NDK minimale da `androidenv` senza emulatore: per l'emulatore c'è il kit `agent-skills/ohos-emulator`; si può
 passare `android.sdk` per usare il suo), `go`. Serve dove la toolchain non si installa con rustup/apt (ohos, NixOS);
 nexus-core e la CI continuano con rustup, che rispetta lo stesso `rust-toolchain.toml`.
+Nel job lo carica l'azione `nix-env` (`nix print-dev-env` del devShell, valutato una volta per hash di
+`flake.nix` + `flake.lock` + `rust-toolchain.toml` in `$HOME/.cache/gx-nix-env/`, poi ripreso dal file); va messa
+PRIMA di `setup`, che aggiunge i suoi `-D` al `GRADLE_OPTS` del devShell. Usata da android-ci e desktop-ci col profilo `ohos`.
 
 Un progetto lo adotta così:
 
