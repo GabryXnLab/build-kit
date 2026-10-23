@@ -35,7 +35,8 @@ bin/ci-batch         lancia le build di più progetti in un colpo (gh workflow r
 locale/              build Rust a mano e degli agenti sulla macchina self-hosted: installa.sh (idempotente) mette
                      gx-sccache come rustc-wrapper in ~/.cargo/config.toml (sccache porta 4227, disco 2G + S3
                      v1/rust/sccache/<arch>/ come la CI, incrementale spento, CARGO_TARGET_DIR tolta dalla chiave),
-                     gx-cc-lld come linker dell'host (lld del toolchain, inerte nei job CI)
+                     gx-cc-lld come linker dell'host (lld del toolchain, inerte nei job CI);
+                     sorveglia-sccache.py nello stesso timer riavvia il server 4227 se si blocca (token del jobserver persi)
                      e il timer di utente gx-pulisci-target (pulisci-target.py: incrementali, test, target ferme,
                      profili sotto 25/10 GB liberi; mai con lock di cargo o di progetto occupati)
 public-sync/         specchio pubblico: sync.py (piano, commit, scanner), patterns generici,

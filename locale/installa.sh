@@ -11,6 +11,7 @@
 #   ~/.cargo/config.toml           → build.rustc-wrapper, build.incremental = false e linker dell'host (file generato)
 #   ~/ci/tools/bin/sccache         → stessa versione e sha256 di setup/action.yml, se manca
 #   timer di utente gx-pulisci-target (ogni 10 minuti) → locale/pulisci-target.py
+#                                    e locale/sorveglia-sccache.py (riavvia il server 4227 se bloccato)
 set -euo pipefail
 kit=$(cd "$(dirname "$(readlink -f "$0")")" && pwd)
 bin=$HOME/.local/bin
@@ -74,6 +75,7 @@ Description=Pulizia delle target cargo di build a mano e agenti (build-kit/local
 
 [Service]
 Type=oneshot
+ExecStart=/usr/bin/python3 $kit/sorveglia-sccache.py
 ExecStart=/usr/bin/python3 $kit/pulisci-target.py --attesa 540
 Nice=19
 IOSchedulingClass=idle
