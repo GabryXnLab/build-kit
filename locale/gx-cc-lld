@@ -1,0 +1,12 @@
+#!/bin/sh
+# Linker delle build cargo a mano e degli agenti: cc con l'lld che rustup distribuisce già col toolchain
+# (gcc-ld/ld.lld), niente pacchetti di sistema. Misurato su athena (2026-10-23, ld.bfd → lld): un test
+# ricompilato 18,9 → 12,4 s, 11 test rilinkati 69,6 → 43,6 s.
+# Nei job CI resta il cc di sempre: il config.toml della macchina vale anche lì, e la CI non è stata
+# collaudata con lld. Il percorso di questo file è fisso perché entra nel fingerprint di cargo: cambiarlo
+# ricompila tutte le dipendenze.
+if [ -z "${GITHUB_ACTIONS:-}" ]; then
+  d="$(rustc --print sysroot 2>/dev/null)/lib/rustlib/$(uname -m)-unknown-linux-gnu/bin/gcc-ld"
+  [ -x "$d/ld.lld" ] && exec cc -fuse-ld=lld -B"$d" "$@"
+fi
+exec cc "$@"

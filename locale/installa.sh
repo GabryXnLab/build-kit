@@ -7,7 +7,8 @@
 #
 # Cosa fa:
 #   ~/.local/bin/gx-sccache        → symlink a locale/gx-sccache (rustc-wrapper)
-#   ~/.cargo/config.toml           → build.rustc-wrapper e build.incremental = false (file generato)
+#   ~/.local/bin/gx-cc-lld         → symlink a locale/gx-cc-lld (linker: lld del toolchain, fuori dalla CI)
+#   ~/.cargo/config.toml           → build.rustc-wrapper, build.incremental = false e linker dell'host (file generato)
 #   ~/ci/tools/bin/sccache         → stessa versione e sha256 di setup/action.yml, se manca
 #   timer di utente gx-pulisci-target (ogni 10 minuti) → locale/pulisci-target.py
 set -euo pipefail
@@ -27,6 +28,7 @@ fi
 
 mkdir -p "$bin" "$units" "$(dirname "$cfg")"
 ln -sfn "$kit/gx-sccache" "$bin/gx-sccache"
+ln -sfn "$kit/gx-cc-lld" "$bin/gx-cc-lld"
 
 if [ -e "$cfg" ] && ! grep -qF "$mark" "$cfg"; then
   echo "$cfg esiste e non è generato da qui: aggiungi a mano [build] rustc-wrapper = \"$bin/gx-sccache\" e incremental = false" >&2
@@ -41,6 +43,10 @@ $mark: non modificarlo a mano.
 [build]
 rustc-wrapper = "$bin/gx-sccache"
 incremental = false
+
+# Link con l'lld del toolchain (gx-cc-lld); un progetto può sovrascriverlo nel suo .cargo/config.toml.
+[target.$(uname -m)-unknown-linux-gnu]
+linker = "$bin/gx-cc-lld"
 EOF
 
 sc=$HOME/ci/tools/bin/sccache
