@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# rustc-wrapper delle build a mano e degli agenti su una macchina self-hosted (nexus-core).
+# Lo mette installa.sh in ~/.cargo/config.toml (build.rustc-wrapper): ogni cargo dell'utente ci passa.
+#
+#   gx-sccache <rustc> <argomenti…>   (lo chiama cargo)
+#   gx-sccache --show-stats           (o qualunque opzione di sccache: parla col server degli agenti)
+#
+# Server sccache proprio (porta 4227, disco ~/.cache/sccache-locale) e non quello della CI (4226): il primo
+# client fissa la config del server, e un job con remote_cache false lo avvierebbe senza S3 per due ore.
+# Dietro il disco, lo stesso prefisso S3 per architettura della CI (build-kit/setup).
+set -u
+SC=${GX_SCCACHE_BIN:-$HOME/ci/tools/bin/sccache}
+ENV_FILE=${GX_CACHE_ENV:-$HOME/secrets/oci-build-cache.env}
+
+if [ "${1:-}" != "${1#-}" ]; then admin=1; else admin=0; fi
+# Nei job CI comanda setup (un RUSTC_WRAPPER d'ambiente prevale su questa config): un job senza rust: true
+# resta com'era. clippy-driver e altri RUSTC_WORKSPACE_WRAPPER passano diretti.
+if [ "$admin" = 0 ]; then
+  case "${1##*/}" in rustc|rustc.exe) ;; *) exec "$@" ;; esac
+  if [ -n "${GITHUB_ACTIONS:-}" ] || [ ! -x "$SC" ]; then exec "$@"; fi
+fi
+
+export SCCACHE_SERVER_PORT=${GX_SCCACHE_PORT:-4227}
+export SCCACHE_DIR=$HOME/.cache/sccache-locale
+export SCCACHE_CACHE_SIZE=2G
+# Come setup: senza, il server esce durante un link lungo e le statistiche ripartono da zero.
+export SCCACHE_IDLE_TIMEOUT=7200
+
+# Solo le chiavi note, senza source (stessa regola di setup).
+if [ -r "$ENV_FILE" ]; then
+  k_id="" k_secret="" k_region="" k_endpoint="" k_bucket=""
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%$'\r'}; v=${line#*=}; v=${v#[\"\']}; v=${v%[\"\']}
+    case "$line" in
+      AWS_ACCESS_KEY_ID=*) k_id=$v ;;
+      AWS_SECRET_ACCESS_KEY=*) k_secret=$v ;;
+      AWS_REGION=*) k_region=$v ;;
+      S3_ENDPOINT=*) k_endpoint=$v ;;
+      S3_BUCKET=*) k_bucket=$v ;;
+    esac
+  done < "$ENV_FILE"
+  if [ -n "$k_id" ] && [ -n "$k_secret" ] && [ -n "$k_region" ] && [ -n "$k_endpoint" ] && [ -n "$k_bucket" ]; then
+    case "$(uname -m)" in aarch64|arm64) arch=arm64 ;; *) arch=x64 ;; esac
+    export SCCACHE_MULTILEVEL_CHAIN=disk,s3
+    # Un errore di S3 (rete, quota) non deve far fallire la compilazione: conta solo il disco.
+    export SCCACHE_MULTILEVEL_WRITE_ERROR_POLICY=l0
+    export SCCACHE_BUCKET=$k_bucket SCCACHE_ENDPOINT=$k_endpoint SCCACHE_REGION=$k_region
+    export SCCACHE_S3_USE_SSL=true SCCACHE_S3_KEY_PREFIX=v1/rust/sccache/$arch/
+    export AWS_ACCESS_KEY_ID=$k_id AWS_SECRET_ACCESS_KEY=$k_secret AWS_REGION=$k_region
+  fi
+fi
+
+# sccache 0.18 mette nella chiave Rust ogni variabile CARGO_* d'ambiente (misurato: CARGO_TARGET_DIR esportata
+# o no cambia la chiave, la cartella target in sé no). rustc non legge queste due: si uniformano, così una
+# build con CARGO_TARGET_DIR esportata (athena) e una con target-dir in .cargo/config.toml (Riftgate) danno
+# le stesse chiavi. CARGO_INCREMENTAL=0 è anche il valore che esporta setup (la CI esporta però anche la sua
+# CARGO_TARGET_DIR, quindi con la CI coincidono solo le chiavi dei job che non la esportano).
+unset CARGO_TARGET_DIR CARGO_BUILD_TARGET_DIR
+export CARGO_INCREMENTAL=0
+exec "$SC" "$@"
