@@ -21,7 +21,7 @@ if [ "$admin" = 0 ]; then
 fi
 
 export SCCACHE_SERVER_PORT=${GX_SCCACHE_PORT:-4227}
-export SCCACHE_DIR=$HOME/.cache/sccache-locale
+export SCCACHE_DIR=${GX_SCCACHE_DIR:-$HOME/.cache/sccache-locale}
 export SCCACHE_CACHE_SIZE=2G
 # Come setup: senza, il server esce durante un link lungo e le statistiche ripartono da zero.
 export SCCACHE_IDLE_TIMEOUT=7200
